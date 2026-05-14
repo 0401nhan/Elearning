@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
+import { canViewPeopleResults, getCurrentUser, isAdmin } from "@/lib/auth";
 import { queryRows, toNumber } from "@/lib/db";
 
 type MetricsRow = RowDataPacket & {
@@ -33,7 +34,20 @@ type WrongQuestionRow = RowDataPacket & {
   question_text: string;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  const employee = await getCurrentUser(request);
+  if (!employee) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
+
+  if (!canViewPeopleResults(employee)) {
+    return NextResponse.json({ error: "Không có quyền xem kết quả nhân sự." }, { status: 403 });
+  }
+
+  const departmentFilter = isAdmin(employee) ? "" : "WHERE e.department_id = ?";
+  const wrongQuestionFilter = isAdmin(employee) ? "WHERE aa.is_correct = 0" : "WHERE aa.is_correct = 0 AND e.department_id = ?";
+  const filterValues = isAdmin(employee) ? [] : [employee.departmentId];
+
   const [metricsRows, resultRows, wrongQuestions] = await Promise.all([
     queryRows<MetricsRow[]>(
       `
@@ -46,15 +60,49 @@ export async function GET() {
         AVG(official_score) AS average_score,
         AVG(practice_attempt_count) AS average_practice_attempts
       FROM test_assignments
-      `
+      JOIN employees e ON e.id = test_assignments.employee_id
+      ${departmentFilter}
+      `,
+      filterValues
     ),
     queryRows<ResultRow[]>(
       `
-      SELECT *
-      FROM v_admin_results
-      ORDER BY assignment_id
+      SELECT
+        ta.id AS assignment_id,
+        e.full_name,
+        e.phone,
+        d.name AS department_name,
+        e.position_title,
+        e.hire_date,
+        t.title AS test_title,
+        ta.practice_attempt_count,
+        ta.official_score,
+        latest.time_spent_seconds,
+        ta.status AS assignment_status,
+        reviewer.full_name AS retake_reviewer
+      FROM test_assignments ta
+      JOIN employees e ON e.id = ta.employee_id
+      JOIN departments d ON d.id = e.department_id
+      JOIN tests t ON t.id = ta.test_id
+      LEFT JOIN (
+        SELECT assignment_id, MAX(id) AS latest_attempt_id
+        FROM test_attempts
+        WHERE mode = 'official'
+        GROUP BY assignment_id
+      ) latest_id ON latest_id.assignment_id = ta.id
+      LEFT JOIN test_attempts latest ON latest.id = latest_id.latest_attempt_id
+      LEFT JOIN (
+        SELECT assignment_id, MAX(reviewed_by) AS reviewed_by
+        FROM retake_requests
+        WHERE status = 'approved'
+        GROUP BY assignment_id
+      ) rr ON rr.assignment_id = ta.id
+      LEFT JOIN employees reviewer ON reviewer.id = rr.reviewed_by
+      ${departmentFilter}
+      ORDER BY ta.id
       LIMIT 50
-      `
+      `,
+      filterValues
     ),
     queryRows<WrongQuestionRow[]>(
       `
@@ -63,12 +111,15 @@ export async function GET() {
         COUNT(*) AS wrong_count,
         q.question_text
       FROM attempt_answers aa
+      JOIN test_attempts attempt ON attempt.id = aa.attempt_id
+      JOIN employees e ON e.id = attempt.employee_id
       JOIN questions q ON q.id = aa.question_id
-      WHERE aa.is_correct = 0
+      ${wrongQuestionFilter}
       GROUP BY q.id, q.question_text
       ORDER BY wrong_count DESC, q.id
       LIMIT 5
-      `
+      `,
+      filterValues
     )
   ]);
 

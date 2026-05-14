@@ -1,18 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
+import { getCurrentUser } from "@/lib/auth";
 import { queryRows, toNumber } from "@/lib/db";
-
-type EmployeeRow = RowDataPacket & {
-  id: number;
-  employee_code: string;
-  full_name: string;
-  phone: string;
-  email: string | null;
-  department_name: string;
-  position_title: string | null;
-  hire_date: string | null;
-  avatar_initial: string | null;
-};
 
 type AssignmentRow = RowDataPacket & {
   assignment_id: number;
@@ -29,31 +18,10 @@ type AssignmentRow = RowDataPacket & {
 };
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const employeeId = Number(searchParams.get("employeeId") ?? 1);
+  const employee = await getCurrentUser(request);
 
-  const employees = await queryRows<EmployeeRow[]>(
-    `
-    SELECT
-      e.id,
-      e.employee_code,
-      e.full_name,
-      e.phone,
-      e.email,
-      d.name AS department_name,
-      e.position_title,
-      e.hire_date,
-      e.avatar_initial
-    FROM employees e
-    JOIN departments d ON d.id = e.department_id
-    WHERE e.id = ?
-    LIMIT 1
-    `,
-    [employeeId]
-  );
-
-  if (!employees[0]) {
-    return NextResponse.json({ error: "Không tìm thấy nhân sự." }, { status: 404 });
+  if (!employee) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
 
   const assignments = await queryRows<AssignmentRow[]>(
@@ -76,7 +44,7 @@ export async function GET(request: Request) {
     WHERE ta.employee_id = ?
     ORDER BY ta.id
     `,
-    [employeeId]
+    [employee.id]
   );
 
   const total = assignments.length;
@@ -86,7 +54,7 @@ export async function GET(request: Request) {
     Math.max(1, assignments.filter((item) => item.official_score !== null).length);
 
   return NextResponse.json({
-    employee: employees[0],
+    employee,
     summary: {
       total,
       completed,

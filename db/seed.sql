@@ -3,11 +3,13 @@ USE eb_elearning;
 SET NAMES utf8mb4;
 
 INSERT INTO departments (id, code, name, description) VALUES
-  (1, 'HCNS', 'Hành chính Nhân sự', 'Phòng phụ trách quy định nhân sự và đào tạo nội bộ'),
-  (2, 'HSE', 'HSE', 'Phòng phụ trách an toàn, sức khỏe và môi trường'),
-  (3, 'TECH', 'Kỹ thuật', 'Đội kỹ thuật hiện trường'),
-  (4, 'PROD', 'Sản xuất', 'Bộ phận sản xuất')
-ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description);
+  (1, 'HCNS', 'HCNS', 'Hành chính nhân sự và đào tạo nội bộ'),
+  (2, 'HSE', 'HSE', 'An toàn, sức khỏe và môi trường'),
+  (3, 'KTVP', 'Kỹ thuật Văn Phòng', 'Đội kỹ thuật văn phòng'),
+  (4, 'KTHT', 'Kỹ thuật hiện trường', 'Đội kỹ thuật hiện trường'),
+  (5, 'DIEUPHOI', 'Điều phối', 'Bộ phận điều phối vận hành'),
+  (6, 'KETOAN', 'Kế toán', 'Bộ phận kế toán')
+ON DUPLICATE KEY UPDATE code = VALUES(code), name = VALUES(name), description = VALUES(description);
 
 INSERT INTO roles (id, code, name, description) VALUES
   (1, 'employee', 'Nhân sự', 'Xem tài liệu, làm thử, làm chính thức, xem kết quả cá nhân'),
@@ -15,8 +17,8 @@ INSERT INTO roles (id, code, name, description) VALUES
   (3, 'hr_admin', 'HR Admin', 'Quản lý test HCNS, xem báo cáo'),
   (4, 'hse_admin', 'HSE Admin', 'Quản lý test HSE, xem báo cáo'),
   (5, 'it_admin', 'IT Admin', 'Quản trị hệ thống, upload câu hỏi, backup dữ liệu'),
-  (6, 'super_admin', 'Admin', 'Toàn quyền')
-ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description);
+  (6, 'admin', 'Admin', 'Toàn quyền')
+ON DUPLICATE KEY UPDATE code = VALUES(code), name = VALUES(name), description = VALUES(description);
 
 INSERT INTO permissions (id, code, name) VALUES
   (1, 'materials.read', 'Xem tài liệu'),
@@ -40,25 +42,28 @@ INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES
   (6,1),(6,2),(6,3),(6,4),(6,5),(6,6),(6,7),(6,8),(6,9),(6,10);
 
 INSERT INTO employees
-  (id, employee_code, username, full_name, phone, email, department_id, position_title, hire_date, avatar_initial)
+  (id, employee_code, username, full_name, phone, password_hash, email, department_id, work_area, position_title, hire_date, avatar_initial)
 VALUES
-  (1, 'EB001', 'nguyenvana', 'Nguyễn Văn A', '0901234567', 'nguyenvana@electricbird.vn', 2, 'Kỹ thuật hiện trường', '2022-05-01', 'A'),
-  (2, 'EB002', 'tranthib', 'Trần Thị B', '0902345678', 'tranthib@electricbird.vn', 1, 'Nhân sự', '2023-03-15', 'B'),
-  (3, 'EB003', 'levanc', 'Lê Văn C', '0903456789', 'levanc@electricbird.vn', 3, 'Kỹ sư cơ điện', '2021-11-20', 'C'),
-  (4, 'EB004', 'phamthid', 'Phạm Thị D', '0904567890', 'phamthid@electricbird.vn', 4, 'Tổ trưởng', '2022-07-10', 'D'),
-  (5, 'EB005', 'hoangvane', 'Hoàng Văn E', '0905678901', 'hoangvane@electricbird.vn', 2, 'Chuyên viên HSE', '2023-01-05', 'E'),
-  (6, 'ADMIN01', 'hradmin', 'HR Admin', '0911111111', 'hradmin@electricbird.vn', 1, 'HR Admin', '2020-01-01', 'H')
+  (1, 'EB001', 'nguyenvana', 'Nguyễn Văn A', '0901234567', 'pbkdf2_sha256$120000$EB001$vuxfBAY-gs3YmcvPPGhhrMJGr2dUCJBCWmCS4neqlX0', 'nguyenvana@electricbird.vn', 4, 'TPHCM', 'Kỹ thuật hiện trường', '2022-05-01', 'A'),
+  (2, 'EB002', 'tranthib', 'Trần Thị B', '0902345678', 'pbkdf2_sha256$120000$EB002$bwiroMlrF4HoQHOd0k8Hsl5CxzUxgxPxpB-apRhvLi0', 'tranthib@electricbird.vn', 1, 'Bình Dương', 'Nhân sự', '2023-03-15', 'B'),
+  (3, 'EB003', 'levanc', 'Lê Văn C', '0903456789', 'pbkdf2_sha256$120000$EB003$oX0zYhPIvFGtNLqdw5pTARVaYoDRRccjBvxWQtF4alw', 'levanc@electricbird.vn', 3, 'Đồng Nai', 'Kỹ sư cơ điện', '2021-11-20', 'C'),
+  (4, 'EB004', 'phamthid', 'Phạm Thị D', '0904567890', 'pbkdf2_sha256$120000$EB004$dp24lyDFc0CyKLULh5pf3M6SnfqHHc33WhNdmIFUaCE', 'phamthid@electricbird.vn', 5, 'Miền Bắc', 'Điều phối hiện trường', '2022-07-10', 'D'),
+  (5, 'EB005', 'hoangvane', 'Hoàng Văn E', '0905678901', 'pbkdf2_sha256$120000$EB005$8DCHxlYzYO8UHscf2ZBeCtFjIZE6ITR69_h2RfNiGH0', 'hoangvane@electricbird.vn', 2, 'Bà Rịa Vũng Tàu', 'Trưởng phòng HSE', '2023-01-05', 'E'),
+  (6, 'ADMIN01', 'hradmin', 'HR Admin', '0911111111', 'pbkdf2_sha256$120000$ADMIN01$6XMYf5c3rLBtfe9Y61-jXLwPt700YMCkVWvCtuoiZzc', 'hradmin@electricbird.vn', 1, 'TPHCM', 'HR Admin', '2020-01-01', 'H'),
+  (7, 'ADMIN', 'admin', 'Admin', 'admin', 'pbkdf2_sha256$120000$ADMIN$eZcR_X1M6YlPmsppvrEE28w5_ZZwBux8rojRNNE0BKQ', 'admin@electricbird.vn', 1, 'TPHCM', 'Admin', '2020-01-01', 'A')
 ON DUPLICATE KEY UPDATE
   full_name = VALUES(full_name),
   phone = VALUES(phone),
+  password_hash = IF(password_hash = '', VALUES(password_hash), password_hash),
   email = VALUES(email),
   department_id = VALUES(department_id),
+  work_area = VALUES(work_area),
   position_title = VALUES(position_title),
   hire_date = VALUES(hire_date),
   avatar_initial = VALUES(avatar_initial);
 
 INSERT IGNORE INTO employee_roles (employee_id, role_id) VALUES
-  (1,1),(2,1),(3,1),(4,1),(5,1),(6,3),(6,6);
+  (1,1),(2,1),(3,1),(4,1),(5,1),(5,2),(6,3),(6,6),(7,6);
 
 INSERT INTO tests
   (id, code, title, department_id, description, question_count, duration_minutes, pass_score, created_by)

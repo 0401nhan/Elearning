@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
+import { getCurrentUser } from "@/lib/auth";
 import { queryRows } from "@/lib/db";
 
 type NotificationRow = RowDataPacket & {
@@ -12,8 +13,10 @@ type NotificationRow = RowDataPacket & {
 };
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const employeeId = Number(searchParams.get("employeeId") ?? 1);
+  const employee = await getCurrentUser(request);
+  if (!employee) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
 
   const rows = await queryRows<NotificationRow[]>(
     `
@@ -23,7 +26,7 @@ export async function GET(request: Request) {
     ORDER BY created_at DESC
     LIMIT 50
     `,
-    [employeeId]
+    [employee.id]
   );
 
   return NextResponse.json({

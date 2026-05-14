@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
+import { getCurrentUser } from "@/lib/auth";
 import { executeQuery, queryRows } from "@/lib/db";
 
 type TicketRow = RowDataPacket & {
@@ -12,8 +13,10 @@ type TicketRow = RowDataPacket & {
 };
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const employeeId = Number(searchParams.get("employeeId") ?? 1);
+  const employee = await getCurrentUser(request);
+  if (!employee) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
 
   const tickets = await queryRows<TicketRow[]>(
     `
@@ -23,15 +26,19 @@ export async function GET(request: Request) {
     ORDER BY created_at DESC
     LIMIT 50
     `,
-    [employeeId]
+    [employee.id]
   );
 
   return NextResponse.json({ tickets });
 }
 
 export async function POST(request: Request) {
+  const employee = await getCurrentUser(request);
+  if (!employee) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
+
   const body = await request.json().catch(() => null);
-  const employeeId = Number(body?.employeeId ?? 1);
   const category = String(body?.category ?? "system");
   const title = String(body?.title ?? "").trim();
   const content = String(body?.content ?? "").trim();
@@ -45,7 +52,7 @@ export async function POST(request: Request) {
     INSERT INTO support_tickets (employee_id, category, title, content)
     VALUES (?, ?, ?, ?)
     `,
-    [employeeId, category, title, content]
+    [employee.id, category, title, content]
   );
 
   return NextResponse.json({ ticketId: result.insertId }, { status: 201 });

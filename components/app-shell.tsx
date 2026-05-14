@@ -1,23 +1,31 @@
-import { Bell, ChevronDown, GraduationCap, Menu } from "lucide-react";
+import { Bell, GraduationCap, Menu } from "lucide-react";
 import { navItems } from "@/lib/mock-data";
-import type { Screen } from "@/lib/types";
-import { Avatar, BrandMark } from "./shared";
+import { canViewPeopleResultsUser } from "@/lib/permissions";
+import type { Screen, SessionUser } from "@/lib/types";
+import { BrandMark } from "./shared";
+import { UserActions } from "./user-actions";
 
 export function AppShell({
   currentScreen,
   setScreen,
+  user,
+  onLogout,
   children
 }: {
   currentScreen: Screen;
   setScreen: (screen: Screen) => void;
+  user: SessionUser;
+  onLogout: () => void;
   children: React.ReactNode;
 }) {
+  const visibleNavItems = navItems.filter((item) => item.screen !== "admin" || canViewPeopleResultsUser(user));
+
   return (
     <main className="app-layout">
       <aside className="sidebar">
         <BrandMark compact />
         <nav className="side-nav">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = currentScreen === item.screen;
             return (
@@ -41,14 +49,14 @@ export function AppShell({
       </aside>
 
       <section className="workspace">
-        <HeaderBar />
+        <HeaderBar user={user} onLogout={onLogout} />
         <div className="content">{children}</div>
       </section>
     </main>
   );
 }
 
-function HeaderBar() {
+function HeaderBar({ user, onLogout }: { user: SessionUser; onLogout: () => void }) {
   return (
     <header className="topbar">
       <button className="icon-button">
@@ -59,14 +67,7 @@ function HeaderBar() {
         <Bell size={21} />
         <span>3</span>
       </button>
-      <div className="profile-chip">
-        <Avatar name="A" />
-        <div>
-          <strong>Nguyễn Văn A</strong>
-          <span>EB001 - Kỹ thuật hiện trường</span>
-        </div>
-        <ChevronDown size={18} />
-      </div>
+      <UserActions user={user} onLogout={onLogout} />
     </header>
   );
 }

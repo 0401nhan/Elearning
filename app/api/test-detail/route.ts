@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
+import { getCurrentUser, isAdmin } from "@/lib/auth";
 import { queryRows, toNumber } from "@/lib/db";
 
 type TestRow = RowDataPacket & {
@@ -44,6 +45,11 @@ type AnswerRow = RowDataPacket & {
 };
 
 export async function GET(request: Request) {
+  const employee = await getCurrentUser(request);
+  if (!employee) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const testId = Number(searchParams.get("testId") ?? 1);
 
@@ -75,6 +81,17 @@ export async function GET(request: Request) {
   const test = tests[0];
   if (!test) {
     return NextResponse.json({ error: "Không tìm thấy bài test." }, { status: 404 });
+  }
+
+  if (!isAdmin(employee)) {
+    const assignments = await queryRows<(RowDataPacket & { id: number })[]>(
+      "SELECT id FROM test_assignments WHERE employee_id = ? AND test_id = ? LIMIT 1",
+      [employee.id, testId]
+    );
+
+    if (!assignments[0]) {
+      return NextResponse.json({ error: "Bạn chưa được giao bài test này." }, { status: 403 });
+    }
   }
 
   const [materials, questions, answers] = await Promise.all([

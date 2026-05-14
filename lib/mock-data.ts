@@ -12,8 +12,8 @@ import {
   LibraryBig,
   ListChecks,
   Settings,
-  Shield,
   ShieldCheck,
+  ShieldX,
   Star,
   User,
   Users
@@ -59,7 +59,7 @@ export const assignedTests: AssignedTest[] = [
     attempts: 3,
     officialScore: 65,
     status: "CHƯA ĐẠT",
-    icon: Shield,
+    icon: ShieldX,
     tone: "purple"
   },
   {
@@ -206,7 +206,7 @@ export const adminMetrics: Metric[] = [
     value: "12",
     note: "10.0%",
     percent: "10%",
-    icon: Shield,
+    icon: ShieldX,
     tone: "red"
   },
   {

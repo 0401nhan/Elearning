@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
+import { getCurrentUser } from "@/lib/auth";
 import { withTransaction } from "@/lib/db";
 
 type SubmittedAnswer = {
@@ -34,8 +35,12 @@ function getResultStatus(score: number) {
 }
 
 export async function POST(request: Request) {
+  const employee = await getCurrentUser(request);
+  if (!employee) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
+
   const body = await request.json().catch(() => null);
-  const employeeId = Number(body?.employeeId ?? 1);
   const testId = Number(body?.testId);
   const mode = body?.mode === "official" ? "official" : "practice";
   const submittedAnswers = Array.isArray(body?.answers) ? (body.answers as SubmittedAnswer[]) : [];
@@ -59,7 +64,7 @@ export async function POST(request: Request) {
       WHERE ta.employee_id = ? AND ta.test_id = ?
       FOR UPDATE
       `,
-      [employeeId, testId]
+      [employee.id, testId]
     );
 
     const assignment = assignmentRows[0];
@@ -116,7 +121,7 @@ export async function POST(request: Request) {
       `,
       [
         assignment.assignment_id,
-        employeeId,
+        employee.id,
         testId,
         mode,
         attemptNo,

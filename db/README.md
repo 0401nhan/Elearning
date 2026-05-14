@@ -10,6 +10,12 @@ Chạy khởi tạo schema và dữ liệu mẫu:
 npm run db:init
 ```
 
+Tài khoản mẫu `username` / `mật khẩu`:
+
+- Admin toàn quyền: `admin` / `admin`
+- Trưởng phòng HSE: `hoangvane` / `0905678901`
+- Nhân sự: `nguyenvana` / `0901234567`
+
 Các nhóm bảng chính:
 
 - `employees`, `departments`, `roles`, `permissions`: nhân sự và phân quyền.

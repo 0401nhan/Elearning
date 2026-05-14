@@ -1,7 +1,15 @@
 import { Bell, CalendarDays, Edit, Lock, Phone, ShieldCheck, User } from "lucide-react";
+import { canViewPeopleResultsUser, isAdminUser, isDepartmentManagerUser } from "@/lib/permissions";
+import type { SessionUser } from "@/lib/types";
 import { Avatar, InfoTable } from "./shared";
 
-export function ProfilePage() {
+export function ProfilePage({ user }: { user: SessionUser }) {
+  const roleText = isAdminUser(user)
+    ? "Admin. Toàn quyền hệ thống."
+    : isDepartmentManagerUser(user)
+      ? "Trưởng phòng. Xem kết quả nhân sự thuộc phòng mình."
+      : "Nhân sự. Chỉ xem tài liệu, làm bài và xem kết quả cá nhân.";
+
   return (
     <>
       <section className="page-header">
@@ -16,9 +24,9 @@ export function ProfilePage() {
 
       <section className="profile-layout">
         <article className="panel profile-summary">
-          <Avatar name="A" />
-          <h3>Nguyễn Văn A</h3>
-          <p>EB001 · Kỹ thuật hiện trường</p>
+          <Avatar name={user.fullName.slice(0, 1)} />
+          <h3>{user.fullName}</h3>
+          <p>{user.code} · {user.position ?? user.department}</p>
           <span className="status-pill success">Đang hoạt động</span>
         </article>
 
@@ -28,12 +36,12 @@ export function ProfilePage() {
           </div>
           <InfoTable
             rows={[
-              ["Họ tên", "Nguyễn Văn A"],
-              ["Mã nhân viên", "EB001"],
-              ["Số điện thoại", "0901 234 567"],
-              ["Phòng ban", "HSE"],
-              ["Vị trí", "Kỹ thuật hiện trường"],
-              ["Ngày vào làm", "01/05/2022"]
+              ["Họ tên", user.fullName],
+              ["Mã nhân viên", user.code],
+              ["Số điện thoại", user.phone],
+              ["Phòng ban", user.department],
+              ["Vị trí", user.position ?? "--"],
+              ["Quyền xem kết quả nhân sự", canViewPeopleResultsUser(user) ? "Có" : "Không"]
             ]}
           />
         </article>
@@ -44,7 +52,7 @@ export function ProfilePage() {
           <Phone size={28} />
           <div>
             <h3>Thông tin đăng nhập</h3>
-            <p>Username theo họ tên không dấu và số điện thoại đã đăng ký với HCNS.</p>
+            <p>Username theo họ tên không dấu và mật khẩu do hệ thống cấp hoặc người dùng tự đổi.</p>
           </div>
           <button className="outline-button">Kiểm tra</button>
         </article>
@@ -68,7 +76,7 @@ export function ProfilePage() {
           <Lock size={28} />
           <div>
             <h3>Quyền truy cập</h3>
-            <p>Vai trò hiện tại: Nhân sự. Chỉ xem tài liệu, làm bài và xem kết quả cá nhân.</p>
+            <p>Vai trò hiện tại: {roleText}</p>
           </div>
           <button className="outline-button">Chi tiết</button>
         </article>

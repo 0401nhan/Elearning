@@ -11,18 +11,20 @@ import {
   Star,
   Target
 } from "lucide-react";
-import type { AssignedTest, Summary } from "@/lib/types";
+import type { AssignedTest, SessionUser, Summary } from "@/lib/types";
 import { Avatar, ProgressLine, StatCard, StatusPill } from "./shared";
 
 export function HomeDashboard({
   summary,
   tests,
+  user,
   onOpenTest,
   onPractice,
   onOfficial
 }: {
   summary: Summary;
   tests: AssignedTest[];
+  user: SessionUser;
   onOpenTest: () => void;
   onPractice: () => void;
   onOfficial: () => void;
@@ -31,7 +33,7 @@ export function HomeDashboard({
     <>
       <section className="welcome">
         <div>
-          <h2>Xin chào, Nguyễn Văn A!</h2>
+          <h2>Xin chào, {user.fullName}!</h2>
           <p>Chúc bạn một ngày học tập hiệu quả!</p>
         </div>
       </section>
@@ -52,16 +54,16 @@ export function HomeDashboard({
             </button>
           </div>
           <div className="profile-body">
-            <Avatar name="A" />
+            <Avatar name={user.fullName.slice(0, 1)} />
             <dl>
               <dt>Họ tên</dt>
-              <dd>Nguyễn Văn A</dd>
+              <dd>{user.fullName}</dd>
               <dt>Mã nhân viên</dt>
-              <dd>EB001</dd>
+              <dd>{user.code}</dd>
               <dt>Phòng ban</dt>
-              <dd>HSE</dd>
+              <dd>{user.department}</dd>
               <dt>Vị trí</dt>
-              <dd>Kỹ thuật hiện trường</dd>
+              <dd>{user.position ?? "--"}</dd>
             </dl>
           </div>
         </div>

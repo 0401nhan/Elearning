@@ -69,3 +69,15 @@ export type Summary = {
   pending: number;
   average: number;
 };
+
+export type SessionUser = {
+  id: number;
+  code: string;
+  username: string;
+  fullName: string;
+  phone: string;
+  departmentId: number;
+  department: string;
+  position: string | null;
+  roles: string[];
+};
