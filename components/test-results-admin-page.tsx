@@ -32,6 +32,23 @@ type ResultRow = {
   retake_reviewer: string | null;
 };
 
+type RetakeRequestRow = {
+  id: number;
+  assignmentId: number;
+  employeeId: number;
+  testId: number;
+  fullName: string;
+  phone: string;
+  departmentName: string;
+  testTitle: string;
+  officialScore: number | null;
+  officialAttemptsUsed: number;
+  approvedRetakeCount: number;
+  reason: string | null;
+  status: string;
+  requestedAt: string;
+};
+
 type DashboardData = {
   metrics: {
     totalAssigned: number;
@@ -83,6 +100,23 @@ function formatDate(value: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("vi-VN");
 }
 
+function formatDateTime(value: string | null) {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value.replace(" ", "T"));
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      });
+}
+
 function assignmentStatusLabel(status: string): ResultStatus | TestStatus {
   if (status === "passed") return "Đạt";
   if (status === "failed") return "Chưa đạt";
@@ -102,6 +136,7 @@ function readFilename(contentDisposition: string | null, fallback: string) {
 
 export function TestResultsAdminPage({ user }: { user: SessionUser }) {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [retakeRequests, setRetakeRequests] = useState<RetakeRequestRow[]>([]);
   const [page, setPage] = useState(1);
   const [departmentId, setDepartmentId] = useState("");
   const [status, setStatus] = useState("");
@@ -113,8 +148,11 @@ export function TestResultsAdminPage({ user }: { user: SessionUser }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedResult, setSelectedResult] = useState<ResultRow | null>(null);
   const [error, setError] = useState("");
+  const [retakeError, setRetakeError] = useState("");
+  const [retakeSuccess, setRetakeSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [retakeActionId, setRetakeActionId] = useState<number | null>(null);
   const isFullAdmin = user.roles.includes("admin");
   const pagination = data?.resultsPagination ?? {
     page,
@@ -189,8 +227,27 @@ export function TestResultsAdminPage({ user }: { user: SessionUser }) {
     }
   }
 
+  async function loadRetakeRequests() {
+    setRetakeError("");
+
+    try {
+      const response = await fetch("/api/admin/retake-requests?status=pending", { cache: "no-store" });
+      const responseData = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setRetakeError(responseData?.error ?? "Không thể tải yêu cầu thi lại.");
+        return;
+      }
+
+      setRetakeRequests(responseData?.requests ?? []);
+    } catch {
+      setRetakeError("Không thể kết nối hệ thống.");
+    }
+  }
+
   useEffect(() => {
     loadResults();
+    loadRetakeRequests();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departmentId, page, refreshKey, status, testId, timeRange]);
 
@@ -233,6 +290,46 @@ export function TestResultsAdminPage({ user }: { user: SessionUser }) {
       setError("Không thể export CSV.");
     } finally {
       setIsExporting(false);
+    }
+  }
+
+  async function reviewRetakeRequest(requestId: number, action: "approve" | "reject") {
+    const reviewNote =
+      action === "reject" ? window.prompt("Nhập lý do từ chối yêu cầu thi lại:") : "";
+
+    if (action === "reject" && reviewNote === null) {
+      return;
+    }
+
+    setRetakeActionId(requestId);
+    setRetakeError("");
+    setRetakeSuccess("");
+
+    try {
+      const response = await fetch("/api/admin/retake-requests", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId,
+          action,
+          reviewNote
+        })
+      });
+      const responseData = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setRetakeError(responseData?.error ?? "Không thể xử lý yêu cầu thi lại.");
+        return;
+      }
+
+      setRetakeSuccess(action === "approve" ? "Đã duyệt mở thêm 1 lượt thi." : "Đã từ chối yêu cầu thi lại.");
+      await Promise.all([loadRetakeRequests(), loadResults(page)]);
+    } catch {
+      setRetakeError("Không thể kết nối hệ thống.");
+    } finally {
+      setRetakeActionId(null);
     }
   }
 
@@ -370,6 +467,76 @@ export function TestResultsAdminPage({ user }: { user: SessionUser }) {
       </section>
 
       {error && <p className="login-error">{error}</p>}
+
+      <section className="panel admin-table-panel">
+        <div className="section-title">
+          <h3>Yêu cầu thi lại chờ duyệt</h3>
+          <button className="outline-button" onClick={loadRetakeRequests}>
+            <RefreshCw size={16} /> Làm mới
+          </button>
+        </div>
+        {retakeError && <p className="login-error">{retakeError}</p>}
+        {retakeSuccess && <p className="success-message">{retakeSuccess}</p>}
+        <div className="admin-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nhân sự</th>
+                <th>Phòng ban</th>
+                <th>Bài test</th>
+                <th>Điểm</th>
+                <th>Lượt đã dùng</th>
+                <th>Lý do</th>
+                <th>Ngày gửi</th>
+                <th>Duyệt</th>
+              </tr>
+            </thead>
+            <tbody>
+              {retakeRequests.map((request) => (
+                <tr key={request.id}>
+                  <td>
+                    <span className="stacked-cell">
+                      <strong>{request.fullName}</strong>
+                      <small>{request.phone}</small>
+                    </span>
+                  </td>
+                  <td>{request.departmentName}</td>
+                  <td>{request.testTitle}</td>
+                  <td>{request.officialScore !== null ? `${request.officialScore}/100` : "--"}</td>
+                  <td>{request.officialAttemptsUsed}</td>
+                  <td>{request.reason ?? "--"}</td>
+                  <td>{formatDateTime(request.requestedAt)}</td>
+                  <td>
+                    <span className="row-actions">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => reviewRetakeRequest(request.id, "approve")}
+                        disabled={retakeActionId === request.id}
+                      >
+                        <CheckCircle2 size={16} /> Duyệt
+                      </button>
+                      <button
+                        className="outline-button"
+                        type="button"
+                        onClick={() => reviewRetakeRequest(request.id, "reject")}
+                        disabled={retakeActionId === request.id}
+                      >
+                        <ShieldX size={16} /> Từ chối
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {!retakeRequests.length && (
+                <tr>
+                  <td colSpan={8}>Không có yêu cầu thi lại đang chờ duyệt.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="panel admin-table-panel">
         <div className="section-title">

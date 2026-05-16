@@ -92,8 +92,11 @@ export function TestDetail({
   const [selectedMaterial, setSelectedMaterial] = useState<DetailMaterial | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [retakeError, setRetakeError] = useState("");
+  const [retakeSuccess, setRetakeSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRequestingRetake, setIsRequestingRetake] = useState(false);
   const activeTest = detail?.test;
   const materials = detail?.materials ?? [];
   const readProgress = Math.round(activeTest?.read_progress_percent ?? test.readProgress);
@@ -161,11 +164,40 @@ export function TestDetail({
     await Promise.all([loadDetail(), onRefreshAssignments()]);
   }
 
+  async function requestRetake() {
+    setRetakeError("");
+    setRetakeSuccess("");
+    setIsRequestingRetake(true);
+
+    const response = await fetch("/api/retake-requests", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        testId: test.id,
+        reason: `Xin mở lại lượt thi chính thức cho bài ${activeTest?.title ?? test.title}.`
+      })
+    }).catch(() => null);
+    const responseData = await response?.json().catch(() => null);
+    setIsRequestingRetake(false);
+
+    if (!response?.ok) {
+      setRetakeError(responseData?.error ?? "Không thể gửi yêu cầu thi lại.");
+      return;
+    }
+
+    setRetakeSuccess(responseData?.message ?? "Yêu cầu thi lại đã được gửi và đang chờ duyệt.");
+    await onRefreshAssignments();
+  }
+
   return (
     <>
       <div className="breadcrumb">Bài test &gt; Chi tiết bài test</div>
       {error && <p className="login-error">{error}</p>}
       {success && <p className="success-message">{success}</p>}
+      {retakeError && <p className="login-error">{retakeError}</p>}
+      {retakeSuccess && <p className="success-message">{retakeSuccess}</p>}
       <section className="panel test-hero">
         <span className="detail-illustration">
           <ClipboardCheck size={64} />
@@ -281,6 +313,11 @@ export function TestDetail({
         <button className="warm-button" onClick={onPractice}>
           <Pencil size={18} /> Làm thử
         </button>
+        {officialDone && !officialPassed && (
+          <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake}>
+            <RefreshCw size={18} /> {isRequestingRetake ? "Đang gửi" : "Gửi yêu cầu thi lại"}
+          </button>
+        )}
         <button
           className={officialDone ? `official-result-button ${officialTone}` : "primary-button"}
           onClick={onOfficial}

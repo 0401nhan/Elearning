@@ -7,6 +7,12 @@ const faqs = [
   ["Có xem đáp án sau bài chính thức không?", "Hệ thống không hiển thị ngay đáp án bài chính thức để đảm bảo đánh giá minh bạch."]
 ];
 
+const supportLinks = {
+  hcns: "https://zalo.me/0356046857",
+  hse: "https://zalo.me/0962009795",
+  it: "https://zalo.me/0386224353"
+};
+
 export function SupportPage() {
   return (
     <>
@@ -22,19 +28,25 @@ export function SupportPage() {
           <Mail size={34} />
           <h3>HR Admin</h3>
           <p>Hỗ trợ thông tin nhân sự, quyền làm bài và mở lượt thi lại.</p>
-          <button className="primary-button">Gửi yêu cầu</button>
+          <a className="primary-button" href={supportLinks.hcns} target="_blank" rel="noreferrer">
+            Gửi yêu cầu
+          </a>
         </article>
         <article className="panel support-card">
           <ShieldCheck size={34} />
           <h3>HSE Admin</h3>
           <p>Giải đáp tài liệu HSE, checklist hiện trường và quy trình an toàn.</p>
-          <button className="outline-button">Liên hệ HSE</button>
+          <a className="outline-button" href={supportLinks.hse} target="_blank" rel="noreferrer">
+            Liên hệ HSE
+          </a>
         </article>
         <article className="panel support-card">
           <Phone size={34} />
           <h3>IT Admin</h3>
           <p>Xử lý lỗi hệ thống, trình duyệt, dữ liệu và tài khoản đăng nhập.</p>
-          <button className="outline-button">Báo lỗi</button>
+          <a className="outline-button" href={supportLinks.it} target="_blank" rel="noreferrer">
+            Báo lỗi
+          </a>
         </article>
       </section>
 

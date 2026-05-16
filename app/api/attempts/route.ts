@@ -13,6 +13,7 @@ type AssignmentLockRow = RowDataPacket & {
   assignment_id: number;
   employee_id: number;
   test_id: number;
+  question_count: number;
   pass_score: string | number;
   max_official_attempts: number;
   approved_retake_count: number;
@@ -75,6 +76,11 @@ function getOfficialAttemptLimit(
 function getPassScore(value: string | number | null | undefined) {
   const passScore = Number(value ?? 80);
   return Number.isFinite(passScore) ? passScore : 80;
+}
+
+function getQuestionLimit(value: string | number | null | undefined) {
+  const questionCount = Math.floor(Number(value));
+  return Number.isFinite(questionCount) ? Math.max(1, questionCount) : 1;
 }
 
 function getResultStatus(score: number, passScoreValue: string | number | null | undefined) {
@@ -403,6 +409,7 @@ export async function POST(request: Request) {
         ta.id AS assignment_id,
         ta.employee_id,
         ta.test_id,
+        t.question_count,
         t.pass_score,
         t.max_official_attempts,
         COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
@@ -436,17 +443,47 @@ export async function POST(request: Request) {
       return { status: 409 as const, body: { error: "Bài chính thức đã hết lượt làm." } };
     }
 
+    const submittedQuestionIds = submittedAnswers.map((answer) => answer.questionId);
+    const submittedQuestionIdSet = new Set(submittedQuestionIds);
+
+    if (submittedQuestionIdSet.size !== submittedQuestionIds.length) {
+      return { status: 400 as const, body: { error: "Bài nộp có câu hỏi bị trùng." } };
+    }
+
     const [activeQuestionRows] = await connection.query<ActiveQuestionRow[]>(
       `
       SELECT id
       FROM questions
-      WHERE test_id = ? AND is_active = 1
+      WHERE test_id = ? AND is_active = 1 AND id IN (?)
       ORDER BY id
       `,
-      [testId]
+      [testId, submittedQuestionIds]
     );
 
     const activeQuestionIds = activeQuestionRows.map((row) => Number(row.id));
+    const [activeQuestionCountRows] = await connection.query<CountRow[]>(
+      "SELECT COUNT(*) AS total FROM questions WHERE test_id = ? AND is_active = 1",
+      [testId]
+    );
+    const expectedQuestionCount = Math.min(
+      getQuestionLimit(assignment.question_count),
+      Number(activeQuestionCountRows[0]?.total ?? 0)
+    );
+
+    if (submittedAnswers.length !== expectedQuestionCount) {
+      return {
+        status: 400 as const,
+        body: { error: "Bài nộp phải gồm đúng số câu hỏi đã được phát cho lượt làm thử." }
+      };
+    }
+
+    if (activeQuestionIds.length !== submittedQuestionIdSet.size) {
+      return {
+        status: 400 as const,
+        body: { error: "Bài nộp có câu hỏi không thuộc bài test hoặc đã bị tắt." }
+      };
+    }
+
     const [optionRows] = await connection.query<AnswerOptionRow[]>(
       `
       SELECT
@@ -455,10 +492,10 @@ export async function POST(request: Request) {
         ao.is_correct
       FROM answer_options ao
       JOIN questions q ON q.id = ao.question_id
-      WHERE q.test_id = ? AND q.is_active = 1
+      WHERE q.test_id = ? AND q.is_active = 1 AND q.id IN (?)
       ORDER BY ao.question_id, ao.sort_order, ao.id
       `,
-      [testId]
+      [testId, activeQuestionIds]
     );
 
     const validOptionsByQuestion = new Map<number, Set<number>>();

@@ -6,6 +6,7 @@ import {
   Clock3,
   Home,
   ListChecks,
+  RefreshCw,
   ShieldCheck,
   X
 } from "lucide-react";
@@ -82,8 +83,11 @@ export function OfficialScreen({
   const [remainingSeconds, setRemainingSeconds] = useState(test.minutes * 60);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [error, setError] = useState("");
+  const [retakeMessage, setRetakeMessage] = useState("");
+  const [retakeError, setRetakeError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRequestingRetake, setIsRequestingRetake] = useState(false);
   const autoSubmitRef = useRef(false);
   const deadlineAtRef = useRef<number | null>(null);
 
@@ -275,6 +279,33 @@ export function OfficialScreen({
       .catch(() => setError("Không thể lưu nháp đáp án."));
   }
 
+  async function requestRetake() {
+    setRetakeMessage("");
+    setRetakeError("");
+    setIsRequestingRetake(true);
+
+    const response = await fetch("/api/retake-requests", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        testId: test.id,
+        reason: `Xin mở lại lượt thi chính thức cho bài ${detail?.test.title ?? test.title}.`
+      })
+    }).catch(() => null);
+    const responseData = await response?.json().catch(() => null);
+    setIsRequestingRetake(false);
+
+    if (!response?.ok) {
+      setRetakeError(responseData?.error ?? "Không thể gửi yêu cầu thi lại.");
+      return;
+    }
+
+    setRetakeMessage(responseData?.message ?? "Yêu cầu thi lại đã được gửi và đang chờ duyệt.");
+    await onRefreshAssignments();
+  }
+
   if (result) {
     const passed = result.score >= result.passScore;
 
@@ -297,7 +328,18 @@ export function OfficialScreen({
               ["Trạng thái", passed ? "Đạt" : "Chưa đạt"]
             ]}
           />
+          {!passed && (
+            <>
+              {retakeError && <p className="login-error">{retakeError}</p>}
+              {retakeMessage && <p className="success-message">{retakeMessage}</p>}
+            </>
+          )}
           <div>
+            {!passed && (
+              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake}>
+                <RefreshCw size={17} /> {isRequestingRetake ? "Đang gửi" : "Gửi yêu cầu thi lại"}
+              </button>
+            )}
             <button className="primary-button" onClick={onHome}>
               <Home size={17} /> Về trang chủ
             </button>
@@ -323,7 +365,18 @@ export function OfficialScreen({
               ["Trạng thái", officialPassed ? "Đạt" : "Chưa đạt"]
             ]}
           />
+          {!officialPassed && (
+            <>
+              {retakeError && <p className="login-error">{retakeError}</p>}
+              {retakeMessage && <p className="success-message">{retakeMessage}</p>}
+            </>
+          )}
           <div>
+            {!officialPassed && (
+              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake}>
+                <RefreshCw size={17} /> {isRequestingRetake ? "Đang gửi" : "Gửi yêu cầu thi lại"}
+              </button>
+            )}
             <button className="primary-button" onClick={onHome}>
               <Home size={17} /> Về trang chủ
             </button>
