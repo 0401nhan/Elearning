@@ -9,8 +9,15 @@ import {
   RotateCcw,
   ShieldCheck,
   Star,
-  Target
+  Target,
+  X
 } from "lucide-react";
+import {
+  isOfficialLocked,
+  isOfficialPassed,
+  officialResultLabel,
+  officialResultTone
+} from "@/lib/test-state";
 import type { AssignedTest, SessionUser, Summary } from "@/lib/types";
 import { Avatar, ProgressLine, StatCard, StatusPill } from "./shared";
 
@@ -25,10 +32,17 @@ export function HomeDashboard({
   summary: Summary;
   tests: AssignedTest[];
   user: SessionUser;
-  onOpenTest: () => void;
-  onPractice: () => void;
-  onOfficial: () => void;
+  onOpenTest: (testId: number) => void;
+  onPractice: (testId: number) => void;
+  onOfficial: (testId: number) => void;
 }) {
+  const completionRate = summary.total ? Math.round((summary.done / summary.total) * 100) : 0;
+  const pendingRate = summary.total ? Math.round((summary.pending / summary.total) * 100) : 0;
+  const readAverage = tests.length ? Math.round(tests.reduce((sum, test) => sum + test.readProgress, 0) / tests.length) : 0;
+  const practiceTotal = tests.reduce((sum, test) => sum + test.attempts, 0);
+  const bestOfficialScore = tests.reduce((best, test) => Math.max(best, test.officialScore ?? 0), 0);
+  const overallStatus = summary.done === summary.total && summary.total > 0 ? "Đã hoàn thành" : "Đang học";
+
   return (
     <>
       <section className="welcome">
@@ -40,8 +54,8 @@ export function HomeDashboard({
 
       <section className="stats-grid">
         <StatCard icon={BookOpen} label="Tổng bài test" value={summary.total} note="Bài test được giao" tone="blue" />
-        <StatCard icon={CheckCircle2} label="Đã hoàn thành" value={summary.done} note="50%" tone="green" />
-        <StatCard icon={Clock3} label="Chưa hoàn thành" value={summary.pending} note="50%" tone="orange" />
+        <StatCard icon={CheckCircle2} label="Đã hoàn thành" value={summary.done} note={`${completionRate}%`} tone="green" />
+        <StatCard icon={Clock3} label="Chưa hoàn thành" value={summary.pending} note={`${pendingRate}%`} tone="orange" />
         <StatCard icon={Star} label="Điểm trung bình" value={`${summary.average}/100`} note="Tất cả bài test" tone="purple" />
       </section>
 
@@ -54,7 +68,7 @@ export function HomeDashboard({
             </button>
           </div>
           <div className="profile-body">
-            <Avatar name={user.fullName.slice(0, 1)} />
+            <Avatar name={user.fullName} initials={user.avatarInitial} />
             <dl>
               <dt>Họ tên</dt>
               <dd>{user.fullName}</dd>
@@ -73,10 +87,10 @@ export function HomeDashboard({
             <h3>Tiến độ học tập chung</h3>
             <BarChart3 size={20} />
           </div>
-          <ProgressLine icon={BookOpen} label="Đã đọc tài liệu" value="75%" percent={75} tone="green" />
-          <ProgressLine icon={ShieldCheck} label="Số lần làm thử" value="5 lần" percent={72} tone="blue" />
-          <ProgressLine icon={CheckCircle2} label="Điểm chính thức" value="82/100" percent={82} tone="purple" />
-          <ProgressLine icon={CheckCircle2} label="Trạng thái chung" value="Đã đạt" percent={100} tone="green" />
+          <ProgressLine icon={BookOpen} label="Đã đọc tài liệu" value={`${readAverage}%`} percent={readAverage} tone="green" />
+          <ProgressLine icon={ShieldCheck} label="Số lần làm thử" value={`${practiceTotal} lần`} percent={Math.min(100, practiceTotal * 12)} tone="blue" />
+          <ProgressLine icon={CheckCircle2} label="Điểm chính thức cao nhất" value={`${bestOfficialScore || "--"}/100`} percent={bestOfficialScore} tone="purple" />
+          <ProgressLine icon={CheckCircle2} label="Trạng thái chung" value={overallStatus} percent={completionRate} tone="green" />
         </div>
       </section>
 
@@ -114,13 +128,18 @@ function AssignedTestRow({
 }: {
   index: number;
   test: AssignedTest;
-  onOpenTest: () => void;
-  onPractice: () => void;
-  onOfficial: () => void;
+  onOpenTest: (testId: number) => void;
+  onPractice: (testId: number) => void;
+  onOfficial: (testId: number) => void;
 }) {
   const Icon = test.icon;
+  const officialDone = isOfficialLocked(test);
+  const officialPassed = isOfficialPassed(test);
+  const officialTone = officialResultTone(test);
+  const officialButtonClass = officialDone ? `official-result-button ${officialTone}` : "primary-button";
+
   return (
-    <article className="test-row">
+    <article className={`test-row ${officialDone ? `official-${officialTone}` : ""}`}>
       <span className={`test-icon ${test.tone}`}>
         <Icon size={29} />
       </span>
@@ -140,27 +159,34 @@ function AssignedTestRow({
         <div className="mini-progress">
           <span>Đã đọc tài liệu: {test.readProgress}%</span>
           <span>Làm thử: {test.attempts} lần</span>
-          <span>Điểm chính thức: {test.officialScore ? `${test.officialScore}/100` : "--"}</span>
+          <span className={officialDone ? `official-score-status ${officialTone}` : ""}>
+            Điểm chính thức: {test.officialScore !== undefined ? `${test.officialScore}/100` : "--"}
+          </span>
+          {test.dueAt && <span>Hạn: {new Date(`${test.dueAt}T00:00:00`).toLocaleDateString("vi-VN")}</span>}
         </div>
       </div>
       <div className="row-actions">
-        <button className="outline-button" onClick={onOpenTest}>
+        <button className="outline-button" onClick={() => onOpenTest(test.id)}>
           <Eye size={16} /> Xem tài liệu
         </button>
-        {test.status !== "ĐÃ ĐẠT" && (
-          <button className="warm-button" onClick={onPractice}>
+        {!officialPassed && test.status !== "CHƯA ĐẠT" && (
+          <button className="warm-button" onClick={() => onPractice(test.id)}>
             <Pencil size={16} /> Làm thử
           </button>
         )}
-        {test.status === "CHƯA ĐẠT" ? (
-          <button className="danger-outline-button" onClick={onPractice}>
+        {test.status === "CHƯA ĐẠT" && (
+          <button className="danger-outline-button" onClick={() => onPractice(test.id)}>
             <RotateCcw size={16} /> Làm lại
           </button>
-        ) : (
-          <button className="primary-button" onClick={onOfficial} disabled={test.status === "CHƯA LÀM"}>
-            <ShieldCheck size={16} /> Làm chính thức
-          </button>
         )}
+        <button
+          className={officialButtonClass}
+          onClick={() => onOfficial(test.id)}
+          disabled={officialDone || test.status === "CHƯA LÀM"}
+        >
+          {officialDone ? officialPassed ? <CheckCircle2 size={16} /> : <X size={16} /> : <ShieldCheck size={16} />}
+          {officialDone ? officialResultLabel(test) : "Làm chính thức"}
+        </button>
       </div>
     </article>
   );

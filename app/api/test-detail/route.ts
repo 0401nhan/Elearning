@@ -18,6 +18,13 @@ type TestRow = RowDataPacket & {
   randomize_answers: number;
   show_practice_answers: number;
   show_official_answers: number;
+  assignment_id: number | null;
+  assignment_status: string | null;
+  read_progress_percent: string | number | null;
+  practice_attempt_count: number | null;
+  official_attempts_used: number | null;
+  official_score: string | number | null;
+  due_at: string | null;
 };
 
 type MaterialRow = RowDataPacket & {
@@ -25,7 +32,9 @@ type MaterialRow = RowDataPacket & {
   title: string;
   material_type: string;
   content_url: string | null;
+  content_text: string | null;
   version_label: string;
+  read_progress_percent: string | number | null;
 };
 
 type QuestionRow = RowDataPacket & {
@@ -52,6 +61,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const testId = Number(searchParams.get("testId") ?? 1);
+  const mode = searchParams.get("mode") === "official" ? "official" : "practice";
 
   const tests = await queryRows<TestRow[]>(
     `
@@ -64,18 +74,32 @@ export async function GET(request: Request) {
       t.question_count,
       t.duration_minutes,
       t.pass_score,
-      t.max_official_attempts,
+      (t.max_official_attempts + COALESCE(retake.approved_retake_count, 0)) AS max_official_attempts,
       t.allow_unlimited_practice,
       t.randomize_questions,
       t.randomize_answers,
       t.show_practice_answers,
-      t.show_official_answers
+      t.show_official_answers,
+      ta.id AS assignment_id,
+      ta.status AS assignment_status,
+      ta.read_progress_percent,
+      ta.practice_attempt_count,
+      ta.official_attempts_used,
+      ta.official_score,
+      DATE_FORMAT(ta.due_at, '%Y-%m-%d') AS due_at
     FROM tests t
     LEFT JOIN departments d ON d.id = t.department_id
+    LEFT JOIN test_assignments ta ON ta.test_id = t.id AND ta.employee_id = ?
+    LEFT JOIN (
+      SELECT assignment_id, COUNT(*) AS approved_retake_count
+      FROM retake_requests
+      WHERE status = 'approved'
+      GROUP BY assignment_id
+    ) retake ON retake.assignment_id = ta.id
     WHERE t.id = ?
     LIMIT 1
     `,
-    [testId]
+    [employee.id, testId]
   );
 
   const test = tests[0];
@@ -94,16 +118,31 @@ export async function GET(request: Request) {
     }
   }
 
+  if (mode === "official") {
+    return NextResponse.json(
+      { error: "Vui lòng bắt đầu lượt thi chính thức để nhận đề cố định." },
+      { status: 400 }
+    );
+  }
+
   const [materials, questions, answers] = await Promise.all([
     queryRows<MaterialRow[]>(
       `
-      SELECT m.id, m.title, m.material_type, m.content_url, m.version_label
+      SELECT
+        m.id,
+        m.title,
+        m.material_type,
+        m.content_url,
+        m.content_text,
+        m.version_label,
+        COALESCE(mp.read_progress_percent, 0) AS read_progress_percent
       FROM test_materials tm
       JOIN training_materials m ON m.id = tm.material_id
-      WHERE tm.test_id = ?
+      LEFT JOIN material_progress mp ON mp.material_id = m.id AND mp.employee_id = ?
+      WHERE tm.test_id = ? AND m.is_active = 1
       ORDER BY tm.sort_order, m.id
       `,
-      [testId]
+      [employee.id, testId]
     ),
     queryRows<QuestionRow[]>(
       `
@@ -111,7 +150,7 @@ export async function GET(request: Request) {
       FROM questions q
       LEFT JOIN question_groups qg ON qg.id = q.group_id
       WHERE q.test_id = ? AND q.is_active = 1
-      ORDER BY q.id
+      ORDER BY ${test.randomize_questions ? "RAND()" : "q.id"}
       `,
       [testId]
     ),
@@ -121,30 +160,40 @@ export async function GET(request: Request) {
       FROM answer_options ao
       JOIN questions q ON q.id = ao.question_id
       WHERE q.test_id = ? AND q.is_active = 1
-      ORDER BY ao.question_id, ao.sort_order
+      ORDER BY ao.question_id, ${test.randomize_answers ? "RAND()" : "ao.sort_order"}
       `,
       [testId]
     )
   ]);
 
+  const shouldRevealAnswers = mode === "practice";
+
   return NextResponse.json({
     test: {
       ...test,
       pass_score: toNumber(test.pass_score),
+      read_progress_percent: toNumber(test.read_progress_percent),
+      practice_attempt_count: toNumber(test.practice_attempt_count) ?? 0,
+      official_attempts_used: toNumber(test.official_attempts_used) ?? 0,
+      official_score: toNumber(test.official_score),
       allow_unlimited_practice: Boolean(test.allow_unlimited_practice),
       randomize_questions: Boolean(test.randomize_questions),
       randomize_answers: Boolean(test.randomize_answers),
-      show_practice_answers: Boolean(test.show_practice_answers),
-      show_official_answers: Boolean(test.show_official_answers)
+      show_practice_answers: true,
+      show_official_answers: false
     },
-    materials,
+    materials: materials.map((material) => ({
+      ...material,
+      read_progress_percent: toNumber(material.read_progress_percent) ?? 0
+    })),
     questions: questions.map((question) => ({
       ...question,
+      explanation: mode === "practice" ? question.explanation : null,
       answers: answers
         .filter((answer) => answer.question_id === question.id)
         .map((answer) => ({
           ...answer,
-          is_correct: Boolean(answer.is_correct)
+          is_correct: shouldRevealAnswers ? Boolean(answer.is_correct) : undefined
         }))
     }))
   });

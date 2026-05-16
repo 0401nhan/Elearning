@@ -42,6 +42,8 @@ type CountRow = RowDataPacket & {
   total: number;
 };
 
+const ONLINE_THRESHOLD_MINUTES = 100;
+
 function requireAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   return Boolean(user && isAdmin(user));
 }
@@ -137,8 +139,12 @@ export async function GET(request: Request) {
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  const [countRows, departments, roles, areas, positions] = await Promise.all([
+  const onlineWhere = [...where, "e.is_active = 1", `e.last_login_at >= DATE_SUB(NOW(), INTERVAL ${ONLINE_THRESHOLD_MINUTES} MINUTE)`];
+  const onlineWhereSql = `WHERE ${onlineWhere.join(" AND ")}`;
+
+  const [countRows, onlineRows, departments, roles, areas, positions] = await Promise.all([
     queryRows<CountRow[]>(`SELECT COUNT(*) AS total FROM employees e ${whereSql}`, values),
+    queryRows<CountRow[]>(`SELECT COUNT(*) AS total FROM employees e ${onlineWhereSql}`, values),
     queryRows<DepartmentRow[]>("SELECT id, code, name FROM departments ORDER BY id"),
     queryRows<RoleRow[]>("SELECT id, code, name FROM roles ORDER BY id"),
     queryRows<DistinctRow[]>(
@@ -170,7 +176,12 @@ export async function GET(request: Request) {
       e.is_active,
       e.last_login_at,
       GROUP_CONCAT(r.name ORDER BY r.id) AS roles,
-      GROUP_CONCAT(r.id ORDER BY r.id) AS role_ids
+      GROUP_CONCAT(r.id ORDER BY r.id) AS role_ids,
+      CASE
+        WHEN SUM(CASE WHEN r.code = 'admin' THEN 1 ELSE 0 END) > 0 THEN 1
+        WHEN SUM(CASE WHEN r.code = 'department_manager' THEN 1 ELSE 0 END) > 0 THEN 2
+        ELSE 3
+      END AS role_rank
     FROM employees e
     JOIN departments d ON d.id = e.department_id
     LEFT JOIN employee_roles er ON er.employee_id = e.id
@@ -190,7 +201,12 @@ export async function GET(request: Request) {
       e.hire_date,
       e.is_active,
       e.last_login_at
-    ORDER BY e.is_active DESC, d.id, e.full_name
+    ORDER BY
+      e.is_active DESC,
+      role_rank ASC,
+      e.last_login_at DESC,
+      d.id ASC,
+      e.full_name ASC
     LIMIT ${pageSize} OFFSET ${offset}
     `,
     values
@@ -200,6 +216,10 @@ export async function GET(request: Request) {
     employees: employees.map(mapEmployee),
     departments,
     roles,
+    summary: {
+      onlineCount: Number(onlineRows[0]?.total ?? 0),
+      onlineThresholdMinutes: ONLINE_THRESHOLD_MINUTES
+    },
     pagination: {
       page,
       pageSize,

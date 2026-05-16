@@ -1,4 +1,5 @@
-import { BookOpen, ClipboardCheck, Eye, Pencil, ShieldCheck } from "lucide-react";
+import { BookOpen, CheckCircle2, ClipboardCheck, Eye, Pencil, ShieldCheck, X } from "lucide-react";
+import { isOfficialLocked, isOfficialPassed, officialResultLabel, officialResultTone } from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
 import { StatusPill } from "./shared";
 
@@ -9,9 +10,9 @@ export function TestsPage({
   onOfficial
 }: {
   tests: AssignedTest[];
-  onOpenTest: () => void;
-  onPractice: () => void;
-  onOfficial: () => void;
+  onOpenTest: (testId: number) => void;
+  onPractice: (testId: number) => void;
+  onOfficial: (testId: number) => void;
 }) {
   return (
     <>
@@ -20,7 +21,7 @@ export function TestsPage({
           <h2>Bài test được giao</h2>
           <p>Theo dõi trạng thái học, lượt làm thử và bài chính thức của từng nội dung.</p>
         </div>
-        <button className="primary-button" onClick={onOpenTest}>
+        <button className="primary-button" onClick={() => tests[0] && onOpenTest(tests[0].id)} disabled={!tests.length}>
           <ClipboardCheck size={18} /> Xem bài đang học
         </button>
       </section>
@@ -28,8 +29,13 @@ export function TestsPage({
       <section className="test-board">
         {tests.map((test) => {
           const Icon = test.icon;
+          const officialDone = isOfficialLocked(test);
+          const officialPassed = isOfficialPassed(test);
+          const officialTone = officialResultTone(test);
+          const officialButtonClass = officialDone ? `official-result-button ${officialTone}` : "primary-button";
+
           return (
-            <article className="test-board-card" key={test.id}>
+            <article className={`test-board-card ${officialDone ? `official-${officialTone}` : ""}`} key={test.id}>
               <div className="test-title-line">
                 <span className={`test-icon ${test.tone}`}>
                   <Icon size={28} />
@@ -50,7 +56,9 @@ export function TestsPage({
                   Lượt làm thử
                 </span>
                 <span>
-                  <strong>{test.officialScore ? `${test.officialScore}/100` : "--"}</strong>
+                  <strong className={officialDone ? `official-score-status ${officialTone}` : ""}>
+                    {test.officialScore !== undefined ? `${test.officialScore}/100` : "--"}
+                  </strong>
                   Điểm chính thức
                 </span>
               </div>
@@ -58,19 +66,31 @@ export function TestsPage({
                 <i className={test.readProgress === 100 ? "green" : "blue"} style={{ width: `${test.readProgress}%` }} />
               </div>
               <div className="row-actions">
-                <button className="outline-button" onClick={onOpenTest}>
+                <button className="outline-button" onClick={() => onOpenTest(test.id)}>
                   <Eye size={16} /> Chi tiết
                 </button>
-                <button className="warm-button" onClick={onPractice}>
+                <button className="warm-button" onClick={() => onPractice(test.id)}>
                   <Pencil size={16} /> Làm thử
                 </button>
-                <button className="primary-button" onClick={onOfficial} disabled={test.status === "CHƯA LÀM"}>
-                  <ShieldCheck size={16} /> Chính thức
+                <button
+                  className={officialButtonClass}
+                  onClick={() => onOfficial(test.id)}
+                  disabled={officialDone || test.status === "CHƯA LÀM"}
+                >
+                  {officialDone ? officialPassed ? <CheckCircle2 size={16} /> : <X size={16} /> : <ShieldCheck size={16} />}
+                  {officialDone ? officialResultLabel(test) : "Chính thức"}
                 </button>
               </div>
             </article>
           );
         })}
+        {tests.length === 0 && (
+          <section className="panel empty-test-panel">
+            <ClipboardCheck size={34} />
+            <strong>Chưa có bài test được giao</strong>
+            <span>Khi HR giao bài test, danh sách sẽ hiển thị tại đây.</span>
+          </section>
+        )}
       </section>
 
       <section className="notice-panel">

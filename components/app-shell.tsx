@@ -1,4 +1,5 @@
-import { Bell, GraduationCap, Menu } from "lucide-react";
+import { Bell, GraduationCap } from "lucide-react";
+import { useEffect, useState } from "react";
 import { navItems } from "@/lib/mock-data";
 import { canViewPeopleResultsUser } from "@/lib/permissions";
 import type { Screen, SessionUser } from "@/lib/types";
@@ -19,6 +20,24 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const visibleNavItems = navItems.filter((item) => item.screen !== "admin" || canViewPeopleResultsUser(user));
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  async function loadUnreadCount() {
+    const response = await fetch("/api/notifications?status=unread", { cache: "no-store" }).catch(() => null);
+    const data = await response?.json().catch(() => null);
+    if (response?.ok) {
+      setUnreadCount(data?.summary?.unread ?? 0);
+    }
+  }
+
+  useEffect(() => {
+    loadUnreadCount();
+
+    const handleChanged = () => loadUnreadCount();
+    window.addEventListener("notifications:changed", handleChanged);
+
+    return () => window.removeEventListener("notifications:changed", handleChanged);
+  }, [currentScreen]);
 
   return (
     <main className="app-layout">
@@ -36,7 +55,7 @@ export function AppShell({
               >
                 <Icon size={20} />
                 <span>{item.label}</span>
-                {item.label === "Thông báo" && <b>3</b>}
+                {item.label === "Thông báo" && unreadCount > 0 && <b>{unreadCount}</b>}
               </button>
             );
           })}
@@ -49,25 +68,40 @@ export function AppShell({
       </aside>
 
       <section className="workspace">
-        <HeaderBar user={user} onLogout={onLogout} />
+        <HeaderBar
+          user={user}
+          unreadCount={unreadCount}
+          onLogout={onLogout}
+          onOpenProfile={() => setScreen("profile")}
+          onOpenNotifications={() => setScreen("notifications")}
+        />
         <div className="content">{children}</div>
       </section>
     </main>
   );
 }
 
-function HeaderBar({ user, onLogout }: { user: SessionUser; onLogout: () => void }) {
+function HeaderBar({
+  user,
+  unreadCount,
+  onLogout,
+  onOpenProfile,
+  onOpenNotifications
+}: {
+  user: SessionUser;
+  unreadCount: number;
+  onLogout: () => void;
+  onOpenProfile: () => void;
+  onOpenNotifications: () => void;
+}) {
   return (
     <header className="topbar">
-      <button className="icon-button">
-        <Menu size={22} />
-      </button>
       <div className="topbar-spacer" />
-      <button className="notification-button">
+      <button className="notification-button" onClick={onOpenNotifications}>
         <Bell size={21} />
-        <span>3</span>
+        {unreadCount > 0 && <span>{unreadCount}</span>}
       </button>
-      <UserActions user={user} onLogout={onLogout} />
+      <UserActions user={user} onLogout={onLogout} onOpenProfile={onOpenProfile} />
     </header>
   );
 }

@@ -295,6 +295,26 @@ CREATE TABLE IF NOT EXISTS attempt_questions (
     ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS attempt_question_options (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  attempt_id BIGINT UNSIGNED NOT NULL,
+  question_id BIGINT UNSIGNED NOT NULL,
+  option_id BIGINT UNSIGNED NOT NULL,
+  option_order INT NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_attempt_question_options_order (attempt_id, question_id, option_order),
+  UNIQUE KEY uq_attempt_question_options_option (attempt_id, question_id, option_id),
+  CONSTRAINT fk_attempt_question_options_attempt
+    FOREIGN KEY (attempt_id) REFERENCES test_attempts(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_attempt_question_options_question
+    FOREIGN KEY (question_id) REFERENCES questions(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_attempt_question_options_option
+    FOREIGN KEY (option_id) REFERENCES answer_options(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS attempt_answers (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   attempt_id BIGINT UNSIGNED NOT NULL,
@@ -413,7 +433,7 @@ JOIN tests t ON t.id = ta.test_id
 LEFT JOIN (
   SELECT assignment_id, MAX(id) AS latest_attempt_id
   FROM test_attempts
-  WHERE mode = 'official'
+  WHERE mode = 'official' AND submitted_at IS NOT NULL
   GROUP BY assignment_id
 ) latest_id ON latest_id.assignment_id = ta.id
 LEFT JOIN test_attempts latest ON latest.id = latest_id.latest_attempt_id

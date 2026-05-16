@@ -22,6 +22,6 @@ Các nhóm bảng chính:
 - `tests`, `training_materials`, `test_materials`: bài test và tài liệu học.
 - `question_groups`, `questions`, `answer_options`: ngân hàng câu hỏi.
 - `test_assignments`, `material_progress`: bài được giao và tiến độ học.
-- `test_attempts`, `attempt_questions`, `attempt_answers`: lượt làm thử/chính thức và đáp án.
+- `test_attempts`, `attempt_questions`, `attempt_question_options`, `attempt_answers`: lượt làm thử/chính thức, thứ tự câu hỏi/đáp án và đáp án đã chọn.
 - `retake_requests`, `notifications`, `support_tickets`: thi lại, thông báo và hỗ trợ.
 - `v_admin_results`: view phục vụ bảng kết quả admin.

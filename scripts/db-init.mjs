@@ -6,7 +6,7 @@ import mysql from "mysql2/promise";
 
 const root = process.cwd();
 const demoEmployeeStartId = 1001;
-const demoEmployeeCount = 72;
+const demoEmployeeCount = 96;
 const demoEmployeeEndId = demoEmployeeStartId + demoEmployeeCount - 1;
 const demoPassword = "123456";
 const workAreas = [
@@ -202,11 +202,18 @@ function buildDemoEmployees() {
 
 function assignmentFor(employee, testId, index) {
   const seed = employee.id + testId + index;
-  const statusCycle = seed % 5;
-  const completedStatus = statusCycle === 0 ? "failed" : statusCycle <= 3 ? "passed" : "studying";
-  const score = completedStatus === "passed" ? 78 + (seed % 21) : completedStatus === "failed" ? 48 + (seed % 27) : null;
-  const practiceCount = 1 + (seed % 6);
-  const readProgress = completedStatus === "studying" ? 35 + (seed % 45) : completedStatus === "failed" ? 100 : 100;
+  const statusCycle = seed % 6;
+  const completedStatus =
+    statusCycle === 0 ? "failed" : statusCycle <= 2 ? "passed" : statusCycle === 3 ? "studying" : "not_started";
+  const score =
+    completedStatus === "passed"
+      ? 76 + (seed % 23)
+      : completedStatus === "failed"
+        ? 42 + (seed % 32)
+        : null;
+  const practiceCount = completedStatus === "not_started" ? 0 : 1 + (seed % 7);
+  const readProgress =
+    completedStatus === "not_started" ? 0 : completedStatus === "studying" ? 25 + (seed % 60) : 100;
   const officialUsed = completedStatus === "passed" || completedStatus === "failed" ? 1 : 0;
   const completedAt =
     completedStatus === "passed" || completedStatus === "failed"
@@ -227,11 +234,30 @@ function assignmentFor(employee, testId, index) {
   ];
 }
 
-function resultStatus(score) {
-  if (score >= 95) return "excellent";
-  if (score >= 80) return "passed";
-  if (score >= 70) return "review_required";
+function resultStatus(score, passScoreValue = 80) {
+  const passScore = Number.isFinite(Number(passScoreValue)) ? Number(passScoreValue) : 80;
+
+  if (score >= Math.max(95, passScore)) return "excellent";
+  if (score >= passScore) return "passed";
+  if (score >= Math.max(0, passScore - 10)) return "review_required";
   return "failed";
+}
+
+function testsForEmployee(employee, index) {
+  const tests = new Set([1, 2]);
+
+  if (employee.departmentId === 1) tests.add(7);
+  if (employee.departmentId === 2) tests.add(3);
+  if (employee.departmentId === 3) tests.add(6);
+  if (employee.departmentId === 4) tests.add(5);
+  if (employee.departmentId === 5) tests.add(8);
+  if (employee.departmentId === 6) tests.add(7);
+  if (index % 3 === 0) tests.add(4);
+  if (index % 4 === 0) tests.add(5);
+  if (index % 5 === 0) tests.add(6);
+  if (index % 7 === 0) tests.add(8);
+
+  return [...tests].sort((a, b) => a - b);
 }
 
 async function seedDemoData(connection) {
@@ -283,11 +309,27 @@ async function seedDemoData(connection) {
     demoEmployeeStartId,
     demoEmployeeEndId
   ]);
+  await connection.query("DELETE FROM attempt_question_options WHERE attempt_id IN (SELECT id FROM test_attempts WHERE employee_id BETWEEN ? AND ?)", [
+    demoEmployeeStartId,
+    demoEmployeeEndId
+  ]);
   await connection.query("DELETE FROM attempt_questions WHERE attempt_id IN (SELECT id FROM test_attempts WHERE employee_id BETWEEN ? AND ?)", [
     demoEmployeeStartId,
     demoEmployeeEndId
   ]);
   await connection.query("DELETE FROM test_attempts WHERE employee_id BETWEEN ? AND ?", [
+    demoEmployeeStartId,
+    demoEmployeeEndId
+  ]);
+  await connection.query("DELETE FROM retake_requests WHERE employee_id BETWEEN ? AND ?", [
+    demoEmployeeStartId,
+    demoEmployeeEndId
+  ]);
+  await connection.query("DELETE FROM material_progress WHERE employee_id BETWEEN ? AND ?", [
+    demoEmployeeStartId,
+    demoEmployeeEndId
+  ]);
+  await connection.query("DELETE FROM test_assignments WHERE employee_id BETWEEN ? AND ?", [
     demoEmployeeStartId,
     demoEmployeeEndId
   ]);
@@ -301,10 +343,7 @@ async function seedDemoData(connection) {
   ]);
 
   const assignmentRows = employees.flatMap((employee, index) => {
-    const tests = [1, 2];
-    if (index % 2 === 0) tests.push(3);
-    if (index % 3 === 0) tests.push(4);
-    return tests.map((testId) => assignmentFor(employee, testId, index));
+    return testsForEmployee(employee, index).map((testId) => assignmentFor(employee, testId, index));
   });
 
   await connection.query(
@@ -324,18 +363,73 @@ async function seedDemoData(connection) {
     [assignmentRows]
   );
 
+  const [materialAssignments] = await connection.query(
+    `
+    SELECT
+      ta.employee_id,
+      ta.test_id,
+      tm.material_id,
+      ta.read_progress_percent
+    FROM test_assignments ta
+    JOIN test_materials tm ON tm.test_id = ta.test_id
+    WHERE ta.employee_id BETWEEN ? AND ?
+    `,
+    [demoEmployeeStartId, demoEmployeeEndId]
+  );
+  const materialRows = materialAssignments.map((row, index) => {
+    const progress = Math.max(0, Math.min(100, Number(row.read_progress_percent) - (index % 3) * 10));
+    const firstViewedAt = progress > 0 ? `2026-05-${String((index % 24) + 1).padStart(2, "0")} 08:00:00` : null;
+    const lastViewedAt = progress > 0 ? `2026-05-${String((index % 24) + 1).padStart(2, "0")} 17:00:00` : null;
+    const completedAt = progress >= 100 ? lastViewedAt : null;
+
+    return [row.employee_id, row.material_id, progress, firstViewedAt, lastViewedAt, completedAt];
+  });
+
+  if (materialRows.length > 0) {
+    await connection.query(
+      `
+      INSERT INTO material_progress
+        (employee_id, material_id, read_progress_percent, first_viewed_at, last_viewed_at, completed_at)
+      VALUES ?
+      ON DUPLICATE KEY UPDATE
+        read_progress_percent = VALUES(read_progress_percent),
+        first_viewed_at = VALUES(first_viewed_at),
+        last_viewed_at = VALUES(last_viewed_at),
+        completed_at = VALUES(completed_at)
+      `,
+      [materialRows]
+    );
+  }
+
   const [completedAssignments] = await connection.query(
     `
-    SELECT id, employee_id, test_id, official_score, completed_at
-    FROM test_assignments
-    WHERE employee_id BETWEEN ? AND ? AND status IN ('passed', 'failed')
-    ORDER BY id
+    SELECT
+      ta.id,
+      ta.employee_id,
+      ta.test_id,
+      ta.official_score,
+      ta.completed_at,
+      t.pass_score
+    FROM test_assignments ta
+    JOIN tests t ON t.id = ta.test_id
+    WHERE ta.employee_id BETWEEN ? AND ? AND ta.status IN ('passed', 'failed')
+    ORDER BY ta.id
     `,
     [demoEmployeeStartId, demoEmployeeEndId]
   );
   const attemptRows = completedAssignments.map((assignment, index) => {
     const score = Number(assignment.official_score);
-    const totalQuestions = assignment.test_id === 3 ? 20 : assignment.test_id === 4 ? 25 : 40;
+    const questionCountByTest = {
+      1: 40,
+      2: 40,
+      3: 20,
+      4: 25,
+      5: 30,
+      6: 25,
+      7: 20,
+      8: 30
+    };
+    const totalQuestions = questionCountByTest[assignment.test_id] ?? 30;
     const correctAnswers = Math.round((score / 100) * totalQuestions);
     const submittedAt = assignment.completed_at instanceof Date
       ? assignment.completed_at.toISOString().slice(0, 19).replace("T", " ")
@@ -353,7 +447,7 @@ async function seedDemoData(connection) {
       totalQuestions,
       correctAnswers,
       score,
-      resultStatus(score),
+      resultStatus(score, assignment.pass_score),
       1
     ];
   });
@@ -369,17 +463,230 @@ async function seedDemoData(connection) {
     );
   }
 
-  const notificationRows = employees.slice(0, 30).map((employee, index) => [
-    employee.id,
-    index % 3 === 0 ? "Bài test mới được giao" : index % 3 === 1 ? "Nhắc hoàn thành bài test" : "Cập nhật tài liệu đào tạo",
-    index % 3 === 0
-      ? "Bạn có bài test nội bộ mới cần hoàn thành trước hạn."
-      : index % 3 === 1
-        ? "Vui lòng hoàn thành bài test còn đang học trước ngày hết hạn."
-        : "Tài liệu đào tạo liên quan đã được cập nhật phiên bản mới.",
-    index % 3 === 0 ? "assignment" : index % 3 === 1 ? "result" : "material",
-    index % 4 === 0 ? 1 : 0
-  ]);
+  const [practiceAssignments] = await connection.query(
+    `
+    SELECT
+      ta.id,
+      ta.employee_id,
+      ta.test_id,
+      ta.practice_attempt_count,
+      ta.status,
+      t.pass_score
+    FROM test_assignments ta
+    JOIN tests t ON t.id = ta.test_id
+    WHERE ta.employee_id BETWEEN ? AND ? AND ta.practice_attempt_count > 0
+    ORDER BY ta.id
+    `,
+    [demoEmployeeStartId, demoEmployeeEndId]
+  );
+  const practiceRows = practiceAssignments.map((assignment, index) => {
+    const score = 52 + ((assignment.employee_id + assignment.test_id + index) % 43);
+    const questionCountByTest = {
+      1: 40,
+      2: 40,
+      3: 20,
+      4: 25,
+      5: 30,
+      6: 25,
+      7: 20,
+      8: 30
+    };
+    const totalQuestions = questionCountByTest[assignment.test_id] ?? 30;
+    const correctAnswers = Math.round((score / 100) * totalQuestions);
+    const day = String(((assignment.employee_id + index) % 24) + 1).padStart(2, "0");
+    const submittedAt = `2026-05-${day} ${String(9 + (index % 8)).padStart(2, "0")}:15:00`;
+
+    return [
+      assignment.id,
+      assignment.employee_id,
+      assignment.test_id,
+      "practice",
+      assignment.practice_attempt_count,
+      submittedAt,
+      submittedAt,
+      420 + ((index % 12) * 40),
+      totalQuestions,
+      correctAnswers,
+      score,
+      resultStatus(score, assignment.pass_score),
+      0
+    ];
+  });
+
+  if (practiceRows.length > 0) {
+    await connection.query(
+      `
+      INSERT INTO test_attempts
+        (assignment_id, employee_id, test_id, mode, attempt_no, started_at, submitted_at, time_spent_seconds, total_questions, correct_answers, score, result_status, is_recorded)
+      VALUES ?
+      `,
+      [practiceRows]
+    );
+  }
+
+  const [attemptDetailRows] = await connection.query(
+    `
+    SELECT id, test_id, score
+    FROM test_attempts
+    WHERE employee_id BETWEEN ? AND ?
+    ORDER BY id
+    `,
+    [demoEmployeeStartId, demoEmployeeEndId]
+  );
+  const [questionOptionRows] = await connection.query(
+    `
+    SELECT
+      q.id AS question_id,
+      q.test_id,
+      correct.id AS correct_option_id,
+      wrong.id AS wrong_option_id
+    FROM questions q
+    JOIN answer_options correct ON correct.question_id = q.id AND correct.is_correct = 1
+    LEFT JOIN answer_options wrong
+      ON wrong.id = (
+        SELECT MIN(candidate.id)
+        FROM answer_options candidate
+        WHERE candidate.question_id = q.id AND candidate.is_correct = 0
+      )
+    WHERE q.is_active = 1
+    ORDER BY q.test_id, q.id
+    `
+  );
+  const [allOptionRows] = await connection.query(
+    `
+    SELECT
+      ao.id AS option_id,
+      ao.question_id
+    FROM answer_options ao
+    JOIN questions q ON q.id = ao.question_id
+    WHERE q.is_active = 1
+    ORDER BY ao.question_id, ao.sort_order, ao.id
+    `
+  );
+  const questionsByTest = new Map();
+  for (const row of questionOptionRows) {
+    const list = questionsByTest.get(row.test_id) ?? [];
+    list.push(row);
+    questionsByTest.set(row.test_id, list);
+  }
+  const optionsByQuestion = new Map();
+  for (const row of allOptionRows) {
+    const list = optionsByQuestion.get(row.question_id) ?? [];
+    list.push(row);
+    optionsByQuestion.set(row.question_id, list);
+  }
+
+  const attemptQuestionRows = [];
+  const attemptQuestionOptionRows = [];
+  const attemptAnswerRows = [];
+  for (const attempt of attemptDetailRows) {
+    const testQuestions = questionsByTest.get(attempt.test_id) ?? [];
+    const correctTarget = Math.round((Number(attempt.score) / 100) * testQuestions.length);
+
+    testQuestions.forEach((question, index) => {
+      const isCorrect = index < correctTarget;
+      const selectedOptionId = isCorrect ? question.correct_option_id : (question.wrong_option_id ?? question.correct_option_id);
+      attemptQuestionRows.push([attempt.id, question.question_id, index + 1]);
+      (optionsByQuestion.get(question.question_id) ?? []).forEach((option, optionIndex) => {
+        attemptQuestionOptionRows.push([attempt.id, question.question_id, option.option_id, optionIndex + 1]);
+      });
+      attemptAnswerRows.push([attempt.id, question.question_id, selectedOptionId, isCorrect ? 1 : 0]);
+    });
+  }
+
+  if (attemptQuestionRows.length > 0) {
+    await connection.query("INSERT IGNORE INTO attempt_questions (attempt_id, question_id, question_order) VALUES ?", [
+      attemptQuestionRows
+    ]);
+  }
+
+  if (attemptQuestionOptionRows.length > 0) {
+    await connection.query("INSERT IGNORE INTO attempt_question_options (attempt_id, question_id, option_id, option_order) VALUES ?", [
+      attemptQuestionOptionRows
+    ]);
+  }
+
+  if (attemptAnswerRows.length > 0) {
+    await connection.query("INSERT IGNORE INTO attempt_answers (attempt_id, question_id, selected_option_id, is_correct) VALUES ?", [
+      attemptAnswerRows
+    ]);
+  }
+
+  const [failedAssignments] = await connection.query(
+    `
+    SELECT id, employee_id, test_id
+    FROM test_assignments
+    WHERE employee_id BETWEEN ? AND ? AND status = 'failed'
+    ORDER BY id
+    `,
+    [demoEmployeeStartId, demoEmployeeEndId]
+  );
+  const retakeRows = failedAssignments.slice(0, 36).map((assignment, index) => {
+    const statuses = ["pending", "approved", "rejected"];
+    const status = statuses[index % statuses.length];
+    const requestedDay = String((index % 24) + 1).padStart(2, "0");
+    const reviewedAt = status === "pending" ? null : `2026-05-${requestedDay} 16:30:00`;
+    const reviewNote =
+      status === "approved"
+        ? "Đã mở lại lượt thi sau khi nhân sự học lại tài liệu."
+        : status === "rejected"
+          ? "Chưa đủ căn cứ mở lại lượt thi, cần hoàn thành tài liệu bổ sung."
+          : null;
+
+    return [
+      assignment.id,
+      assignment.employee_id,
+      assignment.test_id,
+      "Nhân sự đã học lại tài liệu và đề nghị mở thêm lượt thi chính thức.",
+      status,
+      `2026-05-${requestedDay} 15:30:00`,
+      status === "pending" ? null : 6,
+      reviewedAt,
+      reviewNote
+    ];
+  });
+
+  if (retakeRows.length > 0) {
+    await connection.query(
+      `
+      INSERT INTO retake_requests
+        (assignment_id, employee_id, test_id, reason, status, requested_at, reviewed_by, reviewed_at, review_note)
+      VALUES ?
+      `,
+      [retakeRows]
+    );
+  }
+
+  const notificationRows = employees.slice(0, 72).flatMap((employee, index) => {
+    const primaryType = index % 4 === 0 ? "assignment" : index % 4 === 1 ? "material" : index % 4 === 2 ? "result" : "retake";
+    const primaryTitle =
+      primaryType === "assignment"
+        ? "Bài test mới được giao"
+        : primaryType === "material"
+          ? "Cập nhật tài liệu đào tạo"
+          : primaryType === "result"
+            ? "Kết quả bài test đã được ghi nhận"
+            : "Theo dõi yêu cầu thi lại";
+    const primaryBody =
+      primaryType === "assignment"
+        ? "Bạn có bài test nội bộ mới cần hoàn thành trước hạn."
+        : primaryType === "material"
+          ? "Tài liệu đào tạo liên quan đã được cập nhật phiên bản mới."
+          : primaryType === "result"
+            ? "Điểm chính thức của bạn đã được ghi nhận vào hệ thống."
+            : "Yêu cầu mở lượt thi lại của bạn đang được xử lý.";
+
+    return [
+      [employee.id, primaryTitle, primaryBody, primaryType, index % 4 === 0 ? 0 : 1],
+      [
+        employee.id,
+        "Nhắc hoàn thành bài test",
+        "Vui lòng kiểm tra các bài test còn đang học và hoàn thành trước hạn.",
+        "system",
+        index % 5 === 0 ? 0 : 1
+      ]
+    ];
+  });
 
   if (notificationRows.length > 0) {
     await connection.query(
@@ -388,16 +695,33 @@ async function seedDemoData(connection) {
     );
   }
 
-  const supportRows = employees.filter((_, index) => index % 17 === 0).map((employee, index) => [
-    employee.id,
-    index % 2 === 0 ? "retake" : "test",
-    index % 2 === 0 ? "Yêu cầu mở lượt thi lại" : "Cần hỗ trợ khi làm bài",
-    index % 2 === 0
-      ? "Nhân sự đã ôn lại tài liệu và muốn được mở thêm lượt thi chính thức."
-      : "Nhân sự gặp vấn đề trong quá trình làm bài test nội bộ.",
-    index % 2 === 0 ? "open" : "in_progress",
-    6
-  ]);
+  const supportRows = employees.filter((_, index) => index % 9 === 0).map((employee, index) => {
+    const categories = ["retake", "test", "material", "login", "system"];
+    const statuses = ["open", "in_progress", "resolved", "closed"];
+    const category = categories[index % categories.length];
+    const title =
+      category === "retake"
+        ? "Yêu cầu mở lượt thi lại"
+        : category === "test"
+          ? "Cần hỗ trợ khi làm bài"
+          : category === "material"
+            ? "Không mở được tài liệu"
+            : category === "login"
+              ? "Cần hỗ trợ đăng nhập"
+              : "Góp ý hệ thống đào tạo";
+    const content =
+      category === "retake"
+        ? "Nhân sự đã ôn lại tài liệu và muốn được mở thêm lượt thi chính thức."
+        : category === "test"
+          ? "Nhân sự gặp vấn đề trong quá trình làm bài test nội bộ."
+          : category === "material"
+            ? "Tài liệu đào tạo không mở được trên trình duyệt hiện tại."
+            : category === "login"
+              ? "Nhân sự cần kiểm tra thông tin tài khoản đăng nhập."
+              : "Nhân sự góp ý cải thiện trải nghiệm sử dụng hệ thống.";
+
+    return [employee.id, category, title, content, statuses[index % statuses.length], 6];
+  });
 
   if (supportRows.length > 0) {
     await connection.query(

@@ -24,8 +24,28 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   );
 }
 
-export function Avatar({ name, small = false }: { name: string; small?: boolean }) {
-  return <span className={small ? "avatar avatar-small" : "avatar"}>{name}</span>;
+function getInitials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) {
+    return "?";
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+}
+
+export function Avatar({ name, initials, small = false }: { name: string; initials?: string | null; small?: boolean }) {
+  const displayName = initials?.trim() ? initials.trim().slice(0, 3).toUpperCase() : getInitials(name);
+
+  return (
+    <span className={small ? "avatar avatar-small" : "avatar"} title={name} aria-label={name}>
+      {displayName}
+    </span>
+  );
 }
 
 export function StatusPill({ status }: { status: TestStatus | ResultStatus }) {

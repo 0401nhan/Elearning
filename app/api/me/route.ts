@@ -8,12 +8,16 @@ type AssignmentRow = RowDataPacket & {
   test_id: number;
   title: string;
   department_name: string | null;
+  description: string | null;
   question_count: number;
   duration_minutes: number;
   pass_score: string | number;
+  due_at: string | null;
   status: string;
   read_progress_percent: string | number;
   practice_attempt_count: number;
+  official_attempts_used: number;
+  max_official_attempts: number;
   official_score: string | number | null;
 };
 
@@ -31,16 +35,26 @@ export async function GET(request: Request) {
       t.id AS test_id,
       t.title,
       d.name AS department_name,
+      t.description,
       t.question_count,
       t.duration_minutes,
       t.pass_score,
+      DATE_FORMAT(ta.due_at, '%Y-%m-%d') AS due_at,
       ta.status,
       ta.read_progress_percent,
       ta.practice_attempt_count,
+      ta.official_attempts_used,
+      (t.max_official_attempts + COALESCE(retake.approved_retake_count, 0)) AS max_official_attempts,
       ta.official_score
     FROM test_assignments ta
     JOIN tests t ON t.id = ta.test_id
     LEFT JOIN departments d ON d.id = t.department_id
+    LEFT JOIN (
+      SELECT assignment_id, COUNT(*) AS approved_retake_count
+      FROM retake_requests
+      WHERE status = 'approved'
+      GROUP BY assignment_id
+    ) retake ON retake.assignment_id = ta.id
     WHERE ta.employee_id = ?
     ORDER BY ta.id
     `,
@@ -57,6 +71,7 @@ export async function GET(request: Request) {
     employee,
     summary: {
       total,
+      done: completed,
       completed,
       pending: total - completed,
       average: Number(average.toFixed(1))

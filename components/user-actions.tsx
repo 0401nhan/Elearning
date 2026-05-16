@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronDown, KeyRound, LogOut, X } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, UserRound, X, CheckCircle2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import type { SessionUser } from "@/lib/types";
 import { Avatar } from "./shared";
@@ -6,14 +6,21 @@ import { Avatar } from "./shared";
 export function UserActions({
   user,
   roleLabel,
-  onLogout
+  onLogout,
+  onOpenProfile
 }: {
   user: SessionUser;
   roleLabel?: string;
   onLogout: () => void;
+  onOpenProfile: () => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+
+  function openProfilePage() {
+    setIsMenuOpen(false);
+    onOpenProfile();
+  }
 
   function openPasswordModal() {
     setIsMenuOpen(false);
@@ -27,7 +34,7 @@ export function UserActions({
         type="button"
         onClick={() => setIsMenuOpen((value) => !value)}
       >
-        <Avatar name={user.fullName.slice(0, 1)} />
+        <Avatar name={user.fullName} initials={user.avatarInitial} />
         <div>
           <strong>{user.fullName}</strong>
           <span>{roleLabel ?? `${user.code} - ${user.position ?? user.department}`}</span>
@@ -37,6 +44,9 @@ export function UserActions({
 
       {isMenuOpen && (
         <div className="profile-dropdown">
+          <button type="button" onClick={openProfilePage}>
+            <UserRound size={17} /> Thông tin chung
+          </button>
           <button type="button" onClick={openPasswordModal}>
             <KeyRound size={17} /> Đổi mật khẩu
           </button>
@@ -46,11 +56,7 @@ export function UserActions({
         </div>
       )}
 
-      {isPasswordModalOpen && (
-        <ChangePasswordModal
-          onClose={() => setIsPasswordModalOpen(false)}
-        />
-      )}
+      {isPasswordModalOpen && <ChangePasswordModal onClose={() => setIsPasswordModalOpen(false)} />}
     </div>
   );
 }

@@ -11,6 +11,7 @@ export type Screen =
   | "results"
   | "profile"
   | "notifications"
+  | "settings"
   | "support"
   | "admin";
 
@@ -18,15 +19,50 @@ export type TestStatus = "ĐANG HỌC" | "ĐÃ ĐẠT" | "CHƯA ĐẠT" | "CHƯA
 
 export type ResultStatus = "Đạt" | "Chưa đạt";
 
+export type ThemeMode = "light" | "dark";
+
+export type AssignmentStatus = "not_started" | "studying" | "passed" | "failed";
+
+export type UserAssignment = {
+  assignment_id: number;
+  test_id: number;
+  title: string;
+  department_name: string | null;
+  description: string | null;
+  question_count: number;
+  duration_minutes: number;
+  pass_score: number;
+  due_at: string | null;
+  status: AssignmentStatus;
+  read_progress_percent: number;
+  practice_attempt_count: number;
+  official_attempts_used: number;
+  max_official_attempts: number;
+  official_score: number | null;
+};
+
+export type UserSummary = {
+  total: number;
+  done: number;
+  completed: number;
+  pending: number;
+  average: number;
+};
+
 export type AssignedTest = {
   id: number;
+  assignmentId?: number;
   title: string;
   department: string;
+  description?: string | null;
   questions: number;
   minutes: number;
   passScore: number;
+  dueAt?: string | null;
   readProgress: number;
   attempts: number;
+  officialAttemptsUsed?: number;
+  maxOfficialAttempts?: number;
   officialScore?: number;
   status: TestStatus;
   icon: LucideIcon;
@@ -76,8 +112,10 @@ export type SessionUser = {
   username: string;
   fullName: string;
   phone: string;
+  email: string | null;
   departmentId: number;
   department: string;
   position: string | null;
+  avatarInitial: string | null;
   roles: string[];
 };

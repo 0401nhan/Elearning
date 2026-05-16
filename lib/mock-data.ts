@@ -152,6 +152,7 @@ export const navItems = [
   { label: "Kết quả", icon: BarChart3, screen: "results" as Screen },
   { label: "Hồ sơ cá nhân", icon: User, screen: "profile" as Screen },
   { label: "Thông báo", icon: Bell, screen: "notifications" as Screen },
+  { label: "Cài đặt hệ thống", icon: Settings, screen: "settings" as Screen },
   { label: "Hỗ trợ", icon: HelpCircle, screen: "support" as Screen },
   { label: "Admin", icon: Settings, screen: "admin" as Screen }
 ];

@@ -22,10 +22,12 @@ type AuthUserRow = RowDataPacket & {
   username: string;
   full_name: string;
   phone: string;
+  email: string | null;
   password_hash: string;
   department_id: number;
   department_name: string;
   position_title: string | null;
+  avatar_initial: string | null;
   roles: string | null;
 };
 
@@ -107,9 +109,11 @@ function mapUser(row: AuthUserRow): SessionUser {
     username: row.username,
     fullName: row.full_name,
     phone: row.phone,
+    email: row.email,
     departmentId: row.department_id,
     department: row.department_name,
     position: row.position_title,
+    avatarInitial: row.avatar_initial,
     roles: row.roles ? row.roles.split(",") : []
   };
 }
@@ -176,10 +180,12 @@ export async function getUserByCredentials(username: string, password: string) {
       e.username,
       e.full_name,
       e.phone,
+      e.email,
       e.password_hash,
       e.department_id,
       d.name AS department_name,
       e.position_title,
+      e.avatar_initial,
       GROUP_CONCAT(r.code ORDER BY r.code) AS roles
     FROM employees e
     JOIN departments d ON d.id = e.department_id
@@ -209,10 +215,12 @@ export async function getUserById(employeeId: number) {
       e.username,
       e.full_name,
       e.phone,
+      e.email,
       e.password_hash,
       e.department_id,
       d.name AS department_name,
       e.position_title,
+      e.avatar_initial,
       GROUP_CONCAT(r.code ORDER BY r.code) AS roles
     FROM employees e
     JOIN departments d ON d.id = e.department_id

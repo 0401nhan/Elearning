@@ -10,7 +10,7 @@ import {
   UserRound,
   Users
 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Avatar } from "./shared";
 
 type Employee = {
@@ -47,6 +47,10 @@ type PeopleResponse = {
   employees: Employee[];
   departments: Department[];
   roles: Role[];
+  summary: {
+    onlineCount: number;
+    onlineThresholdMinutes: number;
+  };
   pagination: {
     page: number;
     pageSize: number;
@@ -142,6 +146,45 @@ function getPageNumbers(currentPage: number, totalPages: number) {
 }
 
 const EMPLOYEE_PAGE_SIZE = 10;
+const DEFAULT_ONLINE_THRESHOLD_MINUTES = 100;
+
+function getLoginMinutes(lastLoginAt: string | null) {
+  if (!lastLoginAt) {
+    return null;
+  }
+
+  const date = new Date(lastLoginAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+}
+
+function isEmployeeOnline(employee: Employee, thresholdMinutes: number) {
+  const minutes = getLoginMinutes(employee.lastLoginAt);
+
+  return employee.isActive && minutes !== null && minutes <= thresholdMinutes;
+}
+
+function formatLoginAgo(lastLoginAt: string | null, thresholdMinutes: number) {
+  const minutes = getLoginMinutes(lastLoginAt);
+
+  if (minutes === null) {
+    return "Chưa đăng nhập";
+  }
+
+  if (minutes > thresholdMinutes) {
+    return "Offline";
+  }
+
+  if (minutes < 1) {
+    return "Vừa đăng nhập";
+  }
+
+  return `${minutes} phút trước`;
+}
 
 export function PeopleAdminPage() {
   const [data, setData] = useState<PeopleResponse | null>(null);
@@ -156,8 +199,9 @@ export function PeopleAdminPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const activeCount = useMemo(() => data?.employees.filter((employee) => employee.isActive).length ?? 0, [data]);
   const pagination = data?.pagination ?? { page, pageSize: EMPLOYEE_PAGE_SIZE, total: 0, totalPages: 1 };
+  const onlineThreshold = data?.summary.onlineThresholdMinutes ?? DEFAULT_ONLINE_THRESHOLD_MINUTES;
+  const onlineCount = data?.summary.onlineCount ?? 0;
   const totalPages = Math.max(1, pagination.totalPages);
   const visibleCount = data?.employees.length ?? 0;
   const startItem = pagination.total ? (pagination.page - 1) * pagination.pageSize + 1 : 0;
@@ -303,8 +347,8 @@ export function PeopleAdminPage() {
             <Users size={30} />
           </span>
           <div>
-            <span>Đang hiển thị</span>
-            <strong>{visibleCount}</strong>
+            <span>Tổng nhân sự</span>
+            <strong>{pagination.total}</strong>
             <small>Bản ghi theo bộ lọc</small>
           </div>
         </article>
@@ -313,9 +357,9 @@ export function PeopleAdminPage() {
             <UserRound size={30} />
           </span>
           <div>
-            <span>Đang hoạt động</span>
-            <strong>{activeCount}</strong>
-            <small>Có thể đăng nhập</small>
+            <span>Đang online</span>
+            <strong>{onlineCount}</strong>
+            <small>Đăng nhập gần đây</small>
           </div>
         </article>
       </section>
@@ -369,9 +413,9 @@ export function PeopleAdminPage() {
             setPage(1);
           }}
         >
-          <option value="active">Đang hoạt động</option>
-          <option value="inactive">Đã khóa</option>
-          <option value="all">Tất cả trạng thái</option>
+          <option value="active">Tài khoản hoạt động</option>
+          <option value="inactive">Tài khoản đã khóa</option>
+          <option value="all">Tất cả tài khoản</option>
         </select>
         <button className="outline-button" onClick={applyFilters} disabled={isLoading}>
           {isLoading ? <RefreshCw size={17} /> : <Filter size={17} />} Lọc
@@ -404,46 +448,53 @@ export function PeopleAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {(data?.employees ?? []).map((employee) => (
-                <tr key={employee.id}>
-                  <td>
-                    <span className="person-cell">
-                      <Avatar name={employee.fullName.slice(0, 1)} small />
-                      <span>
-                        <strong>{employee.fullName}</strong>
-                        <small>{employee.employeeCode}</small>
+              {(data?.employees ?? []).map((employee) => {
+                const online = isEmployeeOnline(employee, onlineThreshold);
+                const statusClass = !employee.isActive ? "neutral" : online ? "success" : "neutral";
+                const statusText = !employee.isActive ? "Đã khóa" : online ? "Online" : "Offline";
+
+                return (
+                  <tr key={employee.id}>
+                    <td>
+                      <span className="person-cell">
+                        <Avatar name={employee.fullName} small />
+                        <span className="person-meta">
+                          <strong>{employee.fullName}</strong>
+                          <small>{employee.employeeCode}</small>
+                        </span>
                       </span>
-                    </span>
-                  </td>
-                  <td>{employee.username}</td>
-                  <td>
-                    <span className="stacked-cell">
-                      <strong>{employee.phone}</strong>
-                      <small>{employee.email ?? "--"}</small>
-                    </span>
-                  </td>
-                  <td>{employee.departmentName}</td>
-                  <td>{employee.workArea ?? "--"}</td>
-                  <td>{employee.positionTitle ?? "--"}</td>
-                  <td>{employee.roles.join(", ") || "--"}</td>
-                  <td>
-                    <span className={employee.isActive ? "status-pill success" : "status-pill neutral"}>
-                      {employee.isActive ? "Hoạt động" : "Đã khóa"}
-                    </span>
-                  </td>
-                  <td>{formatDate(employee.lastLoginAt)}</td>
-                  <td>
-                    <span className="table-actions">
-                      <button className="table-icon" onClick={() => openEditModal(employee)} aria-label="Sửa nhân sự">
-                        <Edit3 size={16} />
-                      </button>
-                      <button className="table-icon danger" onClick={() => handleDelete(employee)} aria-label="Xóa nhân sự">
-                        <Trash2 size={16} />
-                      </button>
-                    </span>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>{employee.username}</td>
+                    <td>
+                      <span className="stacked-cell">
+                        <strong>{employee.phone}</strong>
+                        <small>{employee.email ?? "--"}</small>
+                      </span>
+                    </td>
+                    <td>{employee.departmentName}</td>
+                    <td>{employee.workArea ?? "--"}</td>
+                    <td>{employee.positionTitle ?? "--"}</td>
+                    <td>{employee.roles.join(", ") || "--"}</td>
+                    <td>
+                      <span className="stacked-cell status-cell">
+                        <span className={`status-pill ${statusClass}`}>{statusText}</span>
+                        <small>{formatLoginAgo(employee.lastLoginAt, onlineThreshold)}</small>
+                      </span>
+                    </td>
+                    <td>{employee.lastLoginAt ? formatDate(employee.lastLoginAt) : "--"}</td>
+                    <td>
+                      <span className="table-actions">
+                        <button className="table-icon" onClick={() => openEditModal(employee)} aria-label="Sửa nhân sự">
+                          <Edit3 size={16} />
+                        </button>
+                        <button className="table-icon danger" onClick={() => handleDelete(employee)} aria-label="Xóa nhân sự">
+                          <Trash2 size={16} />
+                        </button>
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
               {data?.employees.length === 0 && (
                 <tr>
                   <td colSpan={10}>Không có nhân sự phù hợp với bộ lọc.</td>
