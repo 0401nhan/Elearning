@@ -108,6 +108,7 @@ export function TestDetail({
   const officialDone = isOfficialLocked(officialState);
   const officialPassed = isOfficialPassed(officialState);
   const officialTone = officialResultTone(officialState);
+  const passScore = activeTest?.pass_score ?? test.passScore;
 
   async function loadDetail() {
     setIsLoading(true);
@@ -181,7 +182,7 @@ export function TestDetail({
         <div className="test-hero-stats">
           <FeatureLine icon={FileText} label="Số câu hỏi" value={`${activeTest?.question_count ?? test.questions} câu`} />
           <FeatureLine icon={Clock3} label="Thời gian" value={`${activeTest?.duration_minutes ?? test.minutes} phút`} />
-          <FeatureLine icon={Target} label="Điểm đạt" value={`≥ ${activeTest?.pass_score ?? test.passScore} điểm`} success />
+          <FeatureLine icon={Target} label="Điểm đạt" value={`≥ ${passScore} điểm`} success />
         </div>
       </section>
 
@@ -212,7 +213,7 @@ export function TestDetail({
               ["Tiến độ đọc", `${readProgress}%`],
               ["Số câu hỏi", `${activeTest?.question_count ?? test.questions} câu`],
               ["Thời gian", `${activeTest?.duration_minutes ?? test.minutes} phút`],
-              ["Điểm đạt", `≥ ${activeTest?.pass_score ?? test.passScore} điểm`]
+              ["Điểm đạt", `≥ ${passScore} điểm`]
             ]}
           />
         </div>
@@ -269,7 +270,7 @@ export function TestDetail({
         <div>
           <CheckCircle2 size={20} />
           <strong>Bài chính thức</strong>
-          <span>Chỉ được ghi nhận 1 lần duy nhất, cần đạt từ 80 điểm trở lên.</span>
+          <span>Chỉ được ghi nhận 1 lần duy nhất, cần đạt từ {passScore} điểm trở lên.</span>
         </div>
       </section>
 

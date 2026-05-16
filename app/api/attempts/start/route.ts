@@ -9,6 +9,7 @@ type AssignmentLockRow = RowDataPacket & {
   employee_id: number;
   test_id: number;
   title: string;
+  question_count: number;
   duration_minutes: number;
   pass_score: string | number;
   max_official_attempts: number;
@@ -61,6 +62,11 @@ type SavedAnswerRow = RowDataPacket & {
 
 function getOfficialAttemptLimit(assignment: Pick<AssignmentLockRow, "max_official_attempts" | "approved_retake_count">) {
   return Number(assignment.max_official_attempts) + Number(assignment.approved_retake_count ?? 0);
+}
+
+function getQuestionLimit(value: number | string | null | undefined) {
+  const questionCount = Math.floor(Number(value));
+  return Number.isFinite(questionCount) ? Math.max(1, questionCount) : 1;
 }
 
 async function ensureAttemptQuestionOptionsTable() {
@@ -211,6 +217,7 @@ export async function POST(request: Request) {
         ta.employee_id,
         ta.test_id,
         t.title,
+        t.question_count,
         t.duration_minutes,
         t.pass_score,
         t.max_official_attempts,
@@ -281,6 +288,7 @@ export async function POST(request: Request) {
       FROM questions
       WHERE test_id = ? AND is_active = 1
       ORDER BY ${assignment.randomize_questions ? "RAND()" : "id"}
+      LIMIT ${getQuestionLimit(assignment.question_count)}
       `,
       [testId]
     );
@@ -305,9 +313,10 @@ export async function POST(request: Request) {
     );
 
     const attemptId = Number(attemptResult.insertId);
+    const questionIds = questionRows.map((question) => Number(question.id));
 
     await connection.query("INSERT INTO attempt_questions (attempt_id, question_id, question_order) VALUES ?", [
-      questionRows.map((question, index) => [attemptId, question.id, index + 1])
+      questionIds.map((questionId, index) => [attemptId, questionId, index + 1])
     ]);
 
     const [optionRows] = await connection.query<OptionIdRow[]>(
@@ -315,10 +324,10 @@ export async function POST(request: Request) {
       SELECT ao.id, ao.question_id
       FROM answer_options ao
       JOIN questions q ON q.id = ao.question_id
-      WHERE q.test_id = ? AND q.is_active = 1
+      WHERE q.id IN (?)
       ORDER BY ao.question_id, ${assignment.randomize_answers ? "RAND()" : "ao.sort_order, ao.id"}
       `,
-      [testId]
+      [questionIds]
     );
 
     if (optionRows.length) {

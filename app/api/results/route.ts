@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import { getCurrentUser } from "@/lib/auth";
+import { ensureAttemptPassScoreSnapshotColumn } from "@/lib/attempt-schema";
 import { queryRows, toNumber } from "@/lib/db";
 
 type ResultRow = RowDataPacket & {
@@ -46,6 +47,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
 
+  await ensureAttemptPassScoreSnapshotColumn();
+
   const [rows, attempts] = await Promise.all([
     queryRows<ResultRow[]>(
       `
@@ -53,7 +56,7 @@ export async function GET(request: Request) {
         ta.id AS assignment_id,
         t.id AS test_id,
         t.title AS test_title,
-        t.pass_score,
+        COALESCE(latest.pass_score_snapshot, t.pass_score) AS pass_score,
         d.name AS department_name,
         ta.practice_attempt_count,
         ta.official_score,
@@ -82,7 +85,7 @@ export async function GET(request: Request) {
       SELECT
         attempt.id,
         t.title AS test_title,
-        t.pass_score,
+        COALESCE(attempt.pass_score_snapshot, t.pass_score) AS pass_score,
         attempt.mode,
         attempt.attempt_no,
         DATE_FORMAT(attempt.submitted_at, '%Y-%m-%d %H:%i') AS submitted_at,

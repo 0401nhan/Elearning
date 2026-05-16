@@ -53,6 +53,11 @@ type AnswerRow = RowDataPacket & {
   is_correct: number;
 };
 
+function getQuestionLimit(value: number | string | null | undefined) {
+  const questionCount = Math.floor(Number(value));
+  return Number.isFinite(questionCount) ? Math.max(1, questionCount) : 1;
+}
+
 export async function GET(request: Request) {
   const employee = await getCurrentUser(request);
   if (!employee) {
@@ -125,7 +130,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const [materials, questions, answers] = await Promise.all([
+  const [materials, questions] = await Promise.all([
     queryRows<MaterialRow[]>(
       `
       SELECT
@@ -151,22 +156,27 @@ export async function GET(request: Request) {
       LEFT JOIN question_groups qg ON qg.id = q.group_id
       WHERE q.test_id = ? AND q.is_active = 1
       ORDER BY ${test.randomize_questions ? "RAND()" : "q.id"}
-      `,
-      [testId]
-    ),
-    queryRows<AnswerRow[]>(
-      `
-      SELECT ao.id, ao.question_id, ao.option_label, ao.option_text, ao.is_correct
-      FROM answer_options ao
-      JOIN questions q ON q.id = ao.question_id
-      WHERE q.test_id = ? AND q.is_active = 1
-      ORDER BY ao.question_id, ${test.randomize_answers ? "RAND()" : "ao.sort_order"}
+      LIMIT ${getQuestionLimit(test.question_count)}
       `,
       [testId]
     )
   ]);
 
-  const shouldRevealAnswers = mode === "practice";
+  const questionIds = questions.map((question) => Number(question.id));
+  const answers = questionIds.length
+    ? await queryRows<AnswerRow[]>(
+        `
+        SELECT ao.id, ao.question_id, ao.option_label, ao.option_text, ao.is_correct
+        FROM answer_options ao
+        JOIN questions q ON q.id = ao.question_id
+        WHERE q.id IN (?)
+        ORDER BY ao.question_id, ${test.randomize_answers ? "RAND()" : "ao.sort_order"}
+        `,
+        [questionIds]
+      )
+    : [];
+
+  const shouldRevealAnswers = mode === "practice" && Boolean(test.show_practice_answers);
 
   return NextResponse.json({
     test: {
@@ -179,7 +189,7 @@ export async function GET(request: Request) {
       allow_unlimited_practice: Boolean(test.allow_unlimited_practice),
       randomize_questions: Boolean(test.randomize_questions),
       randomize_answers: Boolean(test.randomize_answers),
-      show_practice_answers: true,
+      show_practice_answers: Boolean(test.show_practice_answers),
       show_official_answers: false
     },
     materials: materials.map((material) => ({
@@ -188,7 +198,7 @@ export async function GET(request: Request) {
     })),
     questions: questions.map((question) => ({
       ...question,
-      explanation: mode === "practice" ? question.explanation : null,
+      explanation: shouldRevealAnswers ? question.explanation : null,
       answers: answers
         .filter((answer) => answer.question_id === question.id)
         .map((answer) => ({

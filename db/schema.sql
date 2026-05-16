@@ -261,6 +261,7 @@ CREATE TABLE IF NOT EXISTS test_attempts (
   total_questions INT NOT NULL DEFAULT 0,
   correct_answers INT NOT NULL DEFAULT 0,
   score DECIMAL(5,2) NULL,
+  pass_score_snapshot DECIMAL(5,2) NULL,
   result_status ENUM('excellent','passed','review_required','failed') NULL,
   is_recorded TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -372,6 +373,23 @@ CREATE TABLE IF NOT EXISTS notifications (
   PRIMARY KEY (id),
   KEY idx_notifications_employee (employee_id, is_read),
   CONSTRAINT fk_notifications_employee
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS notification_reads (
+  notification_id BIGINT UNSIGNED NOT NULL,
+  employee_id BIGINT UNSIGNED NOT NULL,
+  is_read TINYINT(1) NOT NULL DEFAULT 1,
+  read_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (notification_id, employee_id),
+  KEY idx_notification_reads_employee (employee_id, is_read),
+  CONSTRAINT fk_notification_reads_notification
+    FOREIGN KEY (notification_id) REFERENCES notifications(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_notification_reads_employee
     FOREIGN KEY (employee_id) REFERENCES employees(id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB;

@@ -49,6 +49,7 @@ type AttemptResult = {
   totalQuestions: number;
   correctAnswers: number;
   score: number;
+  passScore: number;
   resultStatus: string;
 };
 
@@ -82,19 +83,20 @@ export function PracticeScreen({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const questions = useMemo(() => detail?.questions ?? [], [detail]);
+  const revealPracticeAnswers = Boolean(detail?.test.show_practice_answers);
   const activeQuestion = questions[currentIndex];
   const activeAnswerId = activeQuestion ? answers[activeQuestion.id] : undefined;
   const activeIsChecked = Boolean(activeQuestion && checkedQuestions[activeQuestion.id]);
   const activeSelectedOption = getSelectedOption(activeQuestion, activeAnswerId);
-  const activeCorrectOption = getCorrectOption(activeQuestion);
-  const activeIsCorrect = Boolean(activeSelectedOption?.is_correct);
+  const activeCorrectOption = revealPracticeAnswers ? getCorrectOption(activeQuestion) : undefined;
+  const activeIsCorrect = revealPracticeAnswers && Boolean(activeSelectedOption?.is_correct);
   const checkedCount = useMemo(
     () => questions.filter((question) => checkedQuestions[question.id]).length,
     [checkedQuestions, questions]
   );
   const completionPercent = questions.length ? Math.round((checkedCount / questions.length) * 100) : 0;
   const canSubmit = questions.length > 0 && checkedCount === questions.length && !isSubmitting;
-  const scorePass = result ? result.score >= (detail?.test.pass_score ?? test.passScore) : false;
+  const scorePass = result ? result.score >= result.passScore : false;
   const officialDone = isOfficialLocked(test);
   const officialPassed = isOfficialPassed(test);
   const officialTone = officialResultTone(test);
@@ -200,11 +202,11 @@ export function PracticeScreen({
       classes.push("selected");
     }
 
-    if (checked && answer.is_correct) {
+    if (revealPracticeAnswers && checked && answer.is_correct) {
       classes.push("correct-answer");
     }
 
-    if (checked && selected && !answer.is_correct) {
+    if (revealPracticeAnswers && checked && selected && !answer.is_correct) {
       classes.push("wrong-answer");
     }
 
@@ -224,8 +226,10 @@ export function PracticeScreen({
       classes.push("answered");
     }
 
-    if (checked) {
+    if (checked && revealPracticeAnswers) {
       classes.push(selectedOption?.is_correct ? "checked" : "wrong");
+    } else if (checked) {
+      classes.push("checked");
     }
 
     return classes.join(" ");
@@ -241,7 +245,11 @@ export function PracticeScreen({
         <div>
           <span className="eyebrow">Làm thử từng câu</span>
           <h2>{detail?.test.title ?? test.title}</h2>
-          <p>Chọn đáp án cho từng câu, hệ thống sẽ hiện ngay đúng/sai và giải thích trước khi chuyển câu tiếp theo.</p>
+          <p>
+            {revealPracticeAnswers
+              ? "Chọn đáp án cho từng câu, hệ thống sẽ hiện ngay đúng/sai và giải thích trước khi chuyển câu tiếp theo."
+              : "Chọn đáp án cho từng câu và hoàn thành bài thử để xem điểm tổng kết."}
+          </p>
         </div>
         <div className="practice-hero-kpis">
           <span>
@@ -278,33 +286,38 @@ export function PracticeScreen({
                   Đúng {result.correctAnswers}/{result.totalQuestions} câu.{" "}
                   {scorePass
                     ? "Bạn đã đủ điểm để chuyển sang làm chính thức."
-                    : "Nên xem lại các câu sai trước khi làm chính thức."}
+                    : revealPracticeAnswers
+                      ? "Nên xem lại các câu sai trước khi làm chính thức."
+                      : "Nên ôn lại tài liệu trước khi làm chính thức."}
                 </p>
               </div>
               <div className="answer-review practice-review-list">
                 {questions.map((question, index) => {
                   const selectedOption = getSelectedOption(question, answers[question.id]);
-                  const correctOption = getCorrectOption(question);
-                  const ok = Boolean(selectedOption?.is_correct);
+                  const correctOption = revealPracticeAnswers ? getCorrectOption(question) : undefined;
+                  const ok = revealPracticeAnswers && Boolean(selectedOption?.is_correct);
 
                   return (
                     <article key={question.id} id={`practice-question-${question.id}`}>
-                      {ok ? <CheckCircle2 size={22} /> : <X size={22} />}
+                      {revealPracticeAnswers ? ok ? <CheckCircle2 size={22} /> : <X size={22} /> : <HelpCircle size={22} />}
                       <div>
                         <strong>
-                          Câu {index + 1} <span className={ok ? "green-text" : "red-text"}>{ok ? "Đúng" : "Sai"}</span>
+                          Câu {index + 1}{" "}
+                          {revealPracticeAnswers && (
+                            <span className={ok ? "green-text" : "red-text"}>{ok ? "Đúng" : "Sai"}</span>
+                          )}
                         </strong>
                         <p>{question.question_text}</p>
                         <span>
                           Bạn chọn:{" "}
                           {selectedOption ? `${selectedOption.option_label}. ${selectedOption.option_text}` : "Chưa chọn"}
                         </span>
-                        {correctOption && (
+                        {revealPracticeAnswers && correctOption && (
                           <span>
                             Đáp án đúng: {correctOption.option_label}. {correctOption.option_text}
                           </span>
                         )}
-                        {question.explanation && <small>{question.explanation}</small>}
+                        {revealPracticeAnswers && question.explanation && <small>{question.explanation}</small>}
                       </div>
                     </article>
                   );
@@ -330,7 +343,9 @@ export function PracticeScreen({
                   <div className="question-heading">
                     <span>Câu {currentIndex + 1}</span>
                     {activeQuestion.group_name && <small>{activeQuestion.group_name}</small>}
-                    <small>{activeIsChecked ? "Đã xem đáp án" : "Chưa chọn đáp án"}</small>
+                    <small>
+                      {activeIsChecked ? (revealPracticeAnswers ? "Đã xem đáp án" : "Đã chọn đáp án") : "Chưa chọn đáp án"}
+                    </small>
                   </div>
                   <p>{activeQuestion.question_text}</p>
 
@@ -351,7 +366,7 @@ export function PracticeScreen({
                     ))}
                   </div>
 
-                  {activeIsChecked && (
+                  {revealPracticeAnswers && activeIsChecked && (
                     <div className={`practice-feedback ${activeIsCorrect ? "correct" : "wrong"}`}>
                       {activeIsCorrect ? <CheckCircle2 size={22} /> : <X size={22} />}
                       <div>
@@ -372,7 +387,7 @@ export function PracticeScreen({
                     </button>
                     {!activeIsChecked ? (
                       <button className="primary-button" disabled>
-                        <CheckCircle2 size={17} /> Chọn đáp án để xem kết quả
+                        <CheckCircle2 size={17} /> {revealPracticeAnswers ? "Chọn đáp án để xem kết quả" : "Chọn đáp án để tiếp tục"}
                       </button>
                     ) : currentIndex < questions.length - 1 ? (
                       <button className="primary-button" onClick={() => goToQuestion(currentIndex + 1)}>
@@ -397,8 +412,12 @@ export function PracticeScreen({
             <h3>Tiến độ làm thử</h3>
             <p>
               {result
-                ? "Xem lại toàn bộ câu đã làm và phần giải thích."
-                : "Chọn đáp án là hệ thống hiện kết quả ngay. Làm đủ các câu để hoàn thành bài thử."}
+                ? revealPracticeAnswers
+                  ? "Xem lại toàn bộ câu đã làm và phần giải thích."
+                  : "Xem lại các lựa chọn đã làm trong bài thử."
+                : revealPracticeAnswers
+                  ? "Chọn đáp án là hệ thống hiện kết quả ngay. Làm đủ các câu để hoàn thành bài thử."
+                  : "Chọn đáp án cho đủ các câu để hoàn thành bài thử."}
             </p>
           </div>
           <div className="side-progress-ring">

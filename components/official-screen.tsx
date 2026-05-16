@@ -56,6 +56,7 @@ type AttemptResult = {
   totalQuestions: number;
   correctAnswers: number;
   score: number;
+  passScore: number;
   resultStatus: string;
 };
 
@@ -275,7 +276,7 @@ export function OfficialScreen({
   }
 
   if (result) {
-    const passed = result.score >= (detail?.test.pass_score ?? test.passScore);
+    const passed = result.score >= result.passScore;
 
     return (
       <section className="official-exam official-exam-page">
@@ -286,7 +287,7 @@ export function OfficialScreen({
           </h3>
           <p>
             Bài chính thức đã được ghi nhận vào hệ thống. Điểm đạt yêu cầu là ≥{" "}
-            {detail?.test.pass_score ?? test.passScore}.
+            {result.passScore}.
           </p>
           <InfoTable
             rows={[

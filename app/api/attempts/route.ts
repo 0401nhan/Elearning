@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { getCurrentUser } from "@/lib/auth";
+import { ensureAttemptPassScoreSnapshotColumn } from "@/lib/attempt-schema";
 import { withTransaction } from "@/lib/db";
 
 type SubmittedAnswer = {
@@ -312,7 +313,8 @@ async function submitOfficialAttempt(
       return sum + (correctMap.get(`${answer.questionId}:${answer.selectedOptionId}`) ? 1 : 0);
     }, 0);
     const score = Number(((correctAnswers / totalQuestions) * 100).toFixed(2));
-    const resultStatus = getResultStatus(score, attempt.pass_score);
+    const passScoreSnapshot = getPassScore(attempt.pass_score);
+    const resultStatus = getResultStatus(score, passScoreSnapshot);
     const timeSpentSeconds = Math.min(
       maxDurationSeconds,
       Math.max(0, requestedTimeSpentSeconds ?? elapsedSeconds)
@@ -326,11 +328,12 @@ async function submitOfficialAttempt(
           total_questions = ?,
           correct_answers = ?,
           score = ?,
+          pass_score_snapshot = ?,
           result_status = ?,
           is_recorded = 1
       WHERE id = ?
       `,
-      [timeSpentSeconds, totalQuestions, correctAnswers, score, resultStatus, attemptId]
+      [timeSpentSeconds, totalQuestions, correctAnswers, score, passScoreSnapshot, resultStatus, attemptId]
     );
 
     await connection.execute(
@@ -342,7 +345,7 @@ async function submitOfficialAttempt(
           completed_at = NOW()
       WHERE id = ?
       `,
-      [score, score >= Number(attempt.pass_score) ? "passed" : "failed", attempt.assignment_id]
+      [score, score >= passScoreSnapshot ? "passed" : "failed", attempt.assignment_id]
     );
 
     return {
@@ -353,6 +356,7 @@ async function submitOfficialAttempt(
         totalQuestions,
         correctAnswers,
         score,
+        passScore: passScoreSnapshot,
         resultStatus
       }
     };
@@ -376,6 +380,8 @@ export async function POST(request: Request) {
   if (submittedAnswers.length === 0 || normalized.error) {
     return NextResponse.json({ error: normalized.error ?? "Thiếu bài test hoặc đáp án." }, { status: 400 });
   }
+
+  await ensureAttemptPassScoreSnapshotColumn();
 
   if (isOfficialMode(mode)) {
     if (!Number.isInteger(attemptId) || attemptId <= 0) {
@@ -476,7 +482,8 @@ export async function POST(request: Request) {
       return sum + (correctMap.get(`${answer.questionId}:${answer.selectedOptionId}`) ? 1 : 0);
     }, 0);
     const score = Number(((correctAnswers / totalQuestions) * 100).toFixed(2));
-    const resultStatus = getResultStatus(score, assignment.pass_score);
+    const passScoreSnapshot = getPassScore(assignment.pass_score);
+    const resultStatus = getResultStatus(score, passScoreSnapshot);
 
     const [attemptCountRows] = await connection.query<CountRow[]>(
       "SELECT COUNT(*) + 1 AS total FROM test_attempts WHERE assignment_id = ? AND mode = ?",
@@ -487,8 +494,8 @@ export async function POST(request: Request) {
     const [attemptResult] = await connection.execute<ResultSetHeader>(
       `
       INSERT INTO test_attempts
-        (assignment_id, employee_id, test_id, mode, attempt_no, submitted_at, time_spent_seconds, total_questions, correct_answers, score, result_status, is_recorded)
-      VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?)
+        (assignment_id, employee_id, test_id, mode, attempt_no, submitted_at, time_spent_seconds, total_questions, correct_answers, score, pass_score_snapshot, result_status, is_recorded)
+      VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         assignment.assignment_id,
@@ -500,6 +507,7 @@ export async function POST(request: Request) {
         totalQuestions,
         correctAnswers,
         score,
+        passScoreSnapshot,
         resultStatus,
         mode === "official" ? 1 : 0
       ]
@@ -543,7 +551,7 @@ export async function POST(request: Request) {
             completed_at = NOW()
         WHERE id = ?
         `,
-        [score, score >= Number(assignment.pass_score) ? "passed" : "failed", assignment.assignment_id]
+        [score, score >= passScoreSnapshot ? "passed" : "failed", assignment.assignment_id]
       );
     }
 
@@ -555,6 +563,7 @@ export async function POST(request: Request) {
         totalQuestions,
         correctAnswers,
         score,
+        passScore: passScoreSnapshot,
         resultStatus
       }
     };

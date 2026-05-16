@@ -273,17 +273,18 @@ ON DUPLICATE KEY UPDATE
   completed_at = VALUES(completed_at);
 
 INSERT INTO test_attempts
-  (id, assignment_id, employee_id, test_id, mode, attempt_no, started_at, submitted_at, time_spent_seconds, total_questions, correct_answers, score, result_status, is_recorded)
+  (id, assignment_id, employee_id, test_id, mode, attempt_no, started_at, submitted_at, time_spent_seconds, total_questions, correct_answers, score, pass_score_snapshot, result_status, is_recorded)
 VALUES
-  (1, 2, 1, 2, 'official', 1, '2026-05-10 09:12:00', '2026-05-10 09:30:00', 1080, 40, 36, 90.00, 'passed', 1),
-  (2, 3, 1, 3, 'official', 1, '2026-05-06 15:05:00', '2026-05-06 15:20:00', 900, 20, 13, 65.00, 'failed', 1),
-  (3, 1, 1, 1, 'practice', 4, '2026-05-13 08:30:00', '2026-05-13 08:45:00', 900, 25, 18, 72.00, 'review_required', 0)
+  (1, 2, 1, 2, 'official', 1, '2026-05-10 09:12:00', '2026-05-10 09:30:00', 1080, 40, 36, 90.00, 80.00, 'passed', 1),
+  (2, 3, 1, 3, 'official', 1, '2026-05-06 15:05:00', '2026-05-06 15:20:00', 900, 20, 13, 65.00, 80.00, 'failed', 1),
+  (3, 1, 1, 1, 'practice', 4, '2026-05-13 08:30:00', '2026-05-13 08:45:00', 900, 25, 18, 72.00, 80.00, 'review_required', 0)
 ON DUPLICATE KEY UPDATE
   submitted_at = VALUES(submitted_at),
   time_spent_seconds = VALUES(time_spent_seconds),
   total_questions = VALUES(total_questions),
   correct_answers = VALUES(correct_answers),
   score = VALUES(score),
+  pass_score_snapshot = VALUES(pass_score_snapshot),
   result_status = VALUES(result_status),
   is_recorded = VALUES(is_recorded);
 

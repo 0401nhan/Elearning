@@ -329,6 +329,10 @@ async function seedDemoData(connection) {
     demoEmployeeStartId,
     demoEmployeeEndId
   ]);
+  await connection.query("DELETE FROM notification_reads WHERE employee_id BETWEEN ? AND ?", [
+    demoEmployeeStartId,
+    demoEmployeeEndId
+  ]);
   await connection.query("DELETE FROM test_assignments WHERE employee_id BETWEEN ? AND ?", [
     demoEmployeeStartId,
     demoEmployeeEndId
@@ -447,6 +451,7 @@ async function seedDemoData(connection) {
       totalQuestions,
       correctAnswers,
       score,
+      Number(assignment.pass_score),
       resultStatus(score, assignment.pass_score),
       1
     ];
@@ -456,7 +461,7 @@ async function seedDemoData(connection) {
     await connection.query(
       `
       INSERT INTO test_attempts
-        (assignment_id, employee_id, test_id, mode, attempt_no, started_at, submitted_at, time_spent_seconds, total_questions, correct_answers, score, result_status, is_recorded)
+        (assignment_id, employee_id, test_id, mode, attempt_no, started_at, submitted_at, time_spent_seconds, total_questions, correct_answers, score, pass_score_snapshot, result_status, is_recorded)
       VALUES ?
       `,
       [attemptRows]
@@ -508,6 +513,7 @@ async function seedDemoData(connection) {
       totalQuestions,
       correctAnswers,
       score,
+      Number(assignment.pass_score),
       resultStatus(score, assignment.pass_score),
       0
     ];
@@ -517,7 +523,7 @@ async function seedDemoData(connection) {
     await connection.query(
       `
       INSERT INTO test_attempts
-        (assignment_id, employee_id, test_id, mode, attempt_no, started_at, submitted_at, time_spent_seconds, total_questions, correct_answers, score, result_status, is_recorded)
+        (assignment_id, employee_id, test_id, mode, attempt_no, started_at, submitted_at, time_spent_seconds, total_questions, correct_answers, score, pass_score_snapshot, result_status, is_recorded)
       VALUES ?
       `,
       [practiceRows]

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import { canViewPeopleResults, getCurrentUser, isAdmin } from "@/lib/auth";
+import { ensureAttemptPassScoreSnapshotColumn } from "@/lib/attempt-schema";
 import { queryRows, toNumber } from "@/lib/db";
 
 type MetricsRow = RowDataPacket & {
@@ -153,6 +154,8 @@ export async function GET(request: Request) {
   if (!canViewPeopleResults(employee)) {
     return NextResponse.json({ error: "Không có quyền xem kết quả nhân sự." }, { status: 403 });
   }
+
+  await ensureAttemptPassScoreSnapshotColumn();
 
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") ?? "json";
@@ -340,7 +343,7 @@ export async function GET(request: Request) {
       e.position_title,
       e.hire_date,
       t.title AS test_title,
-      t.pass_score,
+      COALESCE(latest.pass_score_snapshot, t.pass_score) AS pass_score,
       ta.practice_attempt_count,
       ta.official_score,
       latest.time_spent_seconds,
