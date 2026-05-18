@@ -6,6 +6,16 @@ let path;
 let next;
 let mysql;
 
+const MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32;
+const INSECURE_SESSION_SECRETS = new Set([
+  "development-session-secret-change-me",
+  "replace_with_a_long_random_secret",
+  "change-me",
+  "changeme",
+  "password",
+  "secret"
+]);
+
 async function loadRuntimeModules() {
   ({ createServer } = await import("node:http"));
   ({ readFile } = await import("node:fs/promises"));
@@ -72,7 +82,17 @@ function requireEnv(name) {
 
 function validateStartupEnv() {
   if (process.env.NODE_ENV === "production") {
-    requireEnv("SESSION_SECRET");
+    const sessionSecret = requireEnv("SESSION_SECRET");
+    const normalizedSecret = sessionSecret.trim().toLowerCase();
+
+    if (
+      sessionSecret.length < MIN_PRODUCTION_SESSION_SECRET_LENGTH ||
+      INSECURE_SESSION_SECRETS.has(normalizedSecret)
+    ) {
+      throw new Error(
+        `SESSION_SECRET must be a private random string with at least ${MIN_PRODUCTION_SESSION_SECRET_LENGTH} characters in production.`
+      );
+    }
   }
 }
 

@@ -10,6 +10,15 @@ const SESSION_TTL_SECONDS = 60 * 60 * 8;
 const PASSWORD_ITERATIONS = 120000;
 const PASSWORD_KEY_LENGTH = 32;
 const PASSWORD_DIGEST = "sha256";
+const MIN_PRODUCTION_SESSION_SECRET_LENGTH = 32;
+const INSECURE_SESSION_SECRETS = new Set([
+  "development-session-secret-change-me",
+  "replace_with_a_long_random_secret",
+  "change-me",
+  "changeme",
+  "password",
+  "secret"
+]);
 
 type SessionPayload = {
   employeeId: number;
@@ -38,6 +47,15 @@ function base64Url(input: string | Buffer) {
 function getSessionSecret() {
   const secret = process.env.SESSION_SECRET;
   if (secret) {
+    if (process.env.NODE_ENV === "production") {
+      const normalizedSecret = secret.trim().toLowerCase();
+      if (secret.length < MIN_PRODUCTION_SESSION_SECRET_LENGTH || INSECURE_SESSION_SECRETS.has(normalizedSecret)) {
+        throw new Error(
+          `SESSION_SECRET must be a private random string with at least ${MIN_PRODUCTION_SESSION_SECRET_LENGTH} characters in production.`
+        );
+      }
+    }
+
     return secret;
   }
 
