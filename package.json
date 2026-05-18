@@ -9,6 +9,7 @@
     "start:next": "next start",
     "lint": "eslint . --max-warnings=0",
     "db:init": "node scripts/db-init.mjs",
+    "db:optimize-concurrency": "node scripts/db-optimize-concurrency.mjs",
     "db:seed-admin-test": "node scripts/seed-admin-onboarding-test.mjs"
   },
   "dependencies": {

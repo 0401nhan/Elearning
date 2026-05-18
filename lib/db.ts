@@ -9,6 +9,11 @@ type SqlValue = string | number | boolean | Date | null | Buffer | SqlValue[];
 
 const globalForPool = globalThis as GlobalWithPool;
 
+function getPositiveIntegerEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 function requireEnv(name: string) {
   const value = process.env[name];
   if (!value) {
@@ -19,8 +24,19 @@ function requireEnv(name: string) {
 }
 
 function createPool() {
+  const connectionLimit = getPositiveIntegerEnv("DATABASE_CONNECTION_LIMIT", 20);
+
   if (process.env.DATABASE_URL) {
-    return mysql.createPool(process.env.DATABASE_URL);
+    return mysql.createPool({
+      uri: process.env.DATABASE_URL,
+      waitForConnections: true,
+      connectionLimit,
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0,
+      namedPlaceholders: true,
+      charset: "utf8mb4"
+    });
   }
 
   return mysql.createPool({
@@ -30,7 +46,10 @@ function createPool() {
     password: requireEnv("DATABASE_PASSWORD"),
     database: requireEnv("DATABASE_NAME"),
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit,
+    queueLimit: 0,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
     namedPlaceholders: true,
     charset: "utf8mb4"
   });

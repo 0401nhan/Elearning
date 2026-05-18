@@ -782,6 +782,24 @@ async function main() {
     await ensureEmployeeColumn(connection, "password_hash", "password_hash VARCHAR(220) NOT NULL DEFAULT '' AFTER phone");
     await ensureEmployeeColumn(connection, "work_area", "work_area VARCHAR(120) NULL AFTER department_id");
     await ensureIndex(connection, "retake_requests", "idx_retake_assignment", "KEY idx_retake_assignment (assignment_id)");
+    await ensureIndex(
+      connection,
+      "retake_requests",
+      "idx_retake_status_assignment",
+      "KEY idx_retake_status_assignment (status, assignment_id)"
+    );
+    await ensureIndex(
+      connection,
+      "test_attempts",
+      "idx_attempts_assignment_mode_submitted",
+      "KEY idx_attempts_assignment_mode_submitted (assignment_id, mode, submitted_at, id)"
+    );
+    await ensureIndex(
+      connection,
+      "test_attempts",
+      "idx_attempts_employee_mode_submitted",
+      "KEY idx_attempts_employee_mode_submitted (employee_id, mode, submitted_at)"
+    );
     await dropIndexIfExists(connection, "retake_requests", "uq_retake_assignment_once");
     await runSqlFile(connection, "seed.sql");
     await seedDemoData(connection);

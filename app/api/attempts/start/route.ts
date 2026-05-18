@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { getCurrentUser } from "@/lib/auth";
-import { executeQuery, toNumber, withTransaction } from "@/lib/db";
+import { ensureAttemptQuestionOptionsTable } from "@/lib/attempt-schema";
+import { toNumber, withTransaction } from "@/lib/db";
 
 type AssignmentLockRow = RowDataPacket & {
   assignment_id: number;
@@ -67,30 +68,6 @@ function getOfficialAttemptLimit(assignment: Pick<AssignmentLockRow, "max_offici
 function getQuestionLimit(value: number | string | null | undefined) {
   const questionCount = Math.floor(Number(value));
   return Number.isFinite(questionCount) ? Math.max(1, questionCount) : 1;
-}
-
-async function ensureAttemptQuestionOptionsTable() {
-  await executeQuery<ResultSetHeader>(`
-    CREATE TABLE IF NOT EXISTS attempt_question_options (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      attempt_id BIGINT UNSIGNED NOT NULL,
-      question_id BIGINT UNSIGNED NOT NULL,
-      option_id BIGINT UNSIGNED NOT NULL,
-      option_order INT NOT NULL,
-      PRIMARY KEY (id),
-      UNIQUE KEY uq_attempt_question_options_order (attempt_id, question_id, option_order),
-      UNIQUE KEY uq_attempt_question_options_option (attempt_id, question_id, option_id),
-      CONSTRAINT fk_attempt_question_options_attempt
-        FOREIGN KEY (attempt_id) REFERENCES test_attempts(id)
-        ON DELETE CASCADE,
-      CONSTRAINT fk_attempt_question_options_question
-        FOREIGN KEY (question_id) REFERENCES questions(id)
-        ON DELETE CASCADE,
-      CONSTRAINT fk_attempt_question_options_option
-        FOREIGN KEY (option_id) REFERENCES answer_options(id)
-        ON DELETE CASCADE
-    ) ENGINE=InnoDB
-  `);
 }
 
 async function getAttemptRow(connection: PoolConnection, attemptId: number) {

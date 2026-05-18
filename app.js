@@ -10,10 +10,13 @@ async function loadRuntimeModules() {
   ({ createServer } = await import("node:http"));
   ({ readFile } = await import("node:fs/promises"));
   path = await import("node:path");
-  next = (await import("next")).default;
 
   const mysqlModule = await import("mysql2/promise");
   mysql = mysqlModule.default ?? mysqlModule;
+}
+
+async function loadNextModule() {
+  next = (await import("next")).default;
 }
 
 function parseEnvLine(line) {
@@ -65,6 +68,12 @@ function requireEnv(name) {
   }
 
   return value;
+}
+
+function validateStartupEnv() {
+  if (process.env.NODE_ENV === "production") {
+    requireEnv("SESSION_SECRET");
+  }
 }
 
 function getDatabaseConfig() {
@@ -266,7 +275,9 @@ async function main() {
 
   await loadRuntimeModules();
   await loadEnvFile(".env");
+  validateStartupEnv();
   await ensureDatabase();
+  await loadNextModule();
   await startServer();
 }
 

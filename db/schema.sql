@@ -267,7 +267,9 @@ CREATE TABLE IF NOT EXISTS test_attempts (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_attempts_assignment (assignment_id),
+  KEY idx_attempts_assignment_mode_submitted (assignment_id, mode, submitted_at, id),
   KEY idx_attempts_employee (employee_id),
+  KEY idx_attempts_employee_mode_submitted (employee_id, mode, submitted_at),
   KEY idx_attempts_test_mode (test_id, mode),
   CONSTRAINT fk_attempts_assignment
     FOREIGN KEY (assignment_id) REFERENCES test_assignments(id)
@@ -350,6 +352,7 @@ CREATE TABLE IF NOT EXISTS retake_requests (
   PRIMARY KEY (id),
   KEY idx_retake_assignment (assignment_id),
   KEY idx_retake_status (status),
+  KEY idx_retake_status_assignment (status, assignment_id),
   CONSTRAINT fk_retake_assignment
     FOREIGN KEY (assignment_id) REFERENCES test_assignments(id)
     ON DELETE CASCADE,
