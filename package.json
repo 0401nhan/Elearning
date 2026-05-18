@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node app.js",
+    "start:next": "next start",
     "lint": "eslint . --max-warnings=0",
     "db:init": "node scripts/db-init.mjs"
   },
