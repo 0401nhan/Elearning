@@ -116,14 +116,30 @@ function normalizeSqlDatabaseName(sql, databaseName) {
     .replace(/USE\s+[`"]?eb_elearning[`"]?\s*;/gi, `USE ${quotedName};`);
 }
 
-async function readDbSql(filename, databaseName) {
-  const sql = await readFile(path.join(root, "db", filename), "utf8");
-  return normalizeSqlDatabaseName(sql, databaseName);
+function stripDatabaseSelectionSql(sql) {
+  return sql
+    .replace(
+      /CREATE\s+DATABASE\s+IF\s+NOT\s+EXISTS\s+[`"]?[^`";\s]+[`"]?\s+CHARACTER\s+SET\s+utf8mb4\s+COLLATE\s+utf8mb4_unicode_ci\s*;/gi,
+      ""
+    )
+    .replace(/USE\s+[`"]?[^`";\s]+[`"]?\s*;/gi, "");
 }
 
-async function runSqlFile(connection, filename, databaseName) {
-  const sql = await readDbSql(filename, databaseName);
+async function readDbSql(filename, databaseName, useCurrentDatabase = false) {
+  const sql = await readFile(path.join(root, "db", filename), "utf8");
+  const normalizedSql = normalizeSqlDatabaseName(sql, databaseName);
+  return useCurrentDatabase ? stripDatabaseSelectionSql(normalizedSql) : normalizedSql;
+}
+
+async function runSqlFile(connection, filename, databaseName, useCurrentDatabase = false) {
+  const sql = await readDbSql(filename, databaseName, useCurrentDatabase);
   await connection.query(sql);
+}
+
+async function createDatabase(connection, databaseName) {
+  await connection.query(
+    `CREATE DATABASE IF NOT EXISTS ${quoteIdentifier(databaseName)} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+  );
 }
 
 async function databaseExists(connection, databaseName) {
@@ -142,6 +158,21 @@ async function getTableNames(connection, databaseName) {
   );
 
   return new Set(rows.map((row) => row.TABLE_NAME));
+}
+
+function formatDatabaseAccessError(error, databaseName) {
+  if (error?.code === "ER_DBACCESS_DENIED_ERROR" || error?.code === "ER_ACCESS_DENIED_ERROR") {
+    return new Error(
+      [
+        `MySQL user cannot access database "${databaseName}".`,
+        "Create this database in MySQL/cPanel and grant the configured user full privileges,",
+        "or update DATABASE_NAME/DATABASE_URL to the exact database assigned to this user.",
+        `Original MySQL error: ${error.sqlMessage || error.message}`
+      ].join(" ")
+    );
+  }
+
+  return error;
 }
 
 function hasRequiredTables(tableNames) {
@@ -170,18 +201,33 @@ async function ensureDatabase() {
   try {
     const exists = await databaseExists(connection, databaseName);
     if (!exists) {
-      console.log(`[startup] Database "${databaseName}" is missing. Initializing schema and seed data...`);
-      await runSqlFile(connection, "schema.sql", databaseName);
-      await runSqlFile(connection, "seed.sql", databaseName);
-      console.log(`[startup] Database "${databaseName}" initialized.`);
-      return;
+      console.log(`[startup] Database "${databaseName}" is missing. Creating database...`);
+      try {
+        await createDatabase(connection, databaseName);
+      } catch (error) {
+        throw formatDatabaseAccessError(error, databaseName);
+      }
     }
+  } finally {
+    await connection.end();
+  }
 
-    const tableNames = await getTableNames(connection, databaseName);
+  let databaseConnection;
+  try {
+    databaseConnection = await mysql.createConnection({
+      ...connectionConfig,
+      database: databaseName
+    });
+  } catch (error) {
+    throw formatDatabaseAccessError(error, databaseName);
+  }
+
+  try {
+    const tableNames = await getTableNames(databaseConnection, databaseName);
     if (tableNames.size === 0) {
       console.log(`[startup] Database "${databaseName}" is empty. Initializing schema and seed data...`);
-      await runSqlFile(connection, "schema.sql", databaseName);
-      await runSqlFile(connection, "seed.sql", databaseName);
+      await runSqlFile(databaseConnection, "schema.sql", databaseName, true);
+      await runSqlFile(databaseConnection, "seed.sql", databaseName, true);
       console.log(`[startup] Database "${databaseName}" initialized.`);
       return;
     }
@@ -194,7 +240,7 @@ async function ensureDatabase() {
 
     console.log(`[startup] Database "${databaseName}" is ready.`);
   } finally {
-    await connection.end();
+    await databaseConnection.end();
   }
 }
 
