@@ -8,7 +8,8 @@
     "start": "node app.js",
     "start:next": "next start",
     "lint": "eslint . --max-warnings=0",
-    "db:init": "node scripts/db-init.mjs"
+    "db:init": "node scripts/db-init.mjs",
+    "db:seed-admin-test": "node scripts/seed-admin-onboarding-test.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
