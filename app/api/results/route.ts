@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import { getCurrentUser } from "@/lib/auth";
-import { ensureAttemptPassScoreSnapshotColumn } from "@/lib/attempt-schema";
 import { queryRows, toNumber } from "@/lib/db";
 
 type ResultRow = RowDataPacket & {
@@ -46,8 +45,6 @@ export async function GET(request: Request) {
   if (!employee) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
-
-  await ensureAttemptPassScoreSnapshotColumn();
 
   const [rows, attempts] = await Promise.all([
     queryRows<ResultRow[]>(

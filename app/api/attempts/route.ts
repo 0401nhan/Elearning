@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { getCurrentUser } from "@/lib/auth";
-import { ensureAttemptPassScoreSnapshotColumn } from "@/lib/attempt-schema";
 import { withTransaction } from "@/lib/db";
 
 type SubmittedAnswer = {
@@ -20,6 +19,7 @@ type AssignmentLockRow = RowDataPacket & {
   official_attempts_used: number;
   official_score: string | number | null;
   status: string;
+  test_status: string;
 };
 
 type CountRow = RowDataPacket & {
@@ -51,6 +51,7 @@ type OfficialAttemptLockRow = RowDataPacket & {
   official_attempts_used: number;
   official_score: string | number | null;
   status: string;
+  test_status: string;
 };
 
 type AttemptQuestionRow = RowDataPacket & {
@@ -189,7 +190,8 @@ async function submitOfficialAttempt(
         COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
         ta.official_attempts_used,
         ta.official_score,
-        ta.status
+        ta.status,
+        t.status AS test_status
       FROM test_attempts attempt
       JOIN test_assignments ta ON ta.id = attempt.assignment_id
       JOIN tests t ON t.id = attempt.test_id
@@ -216,6 +218,10 @@ async function submitOfficialAttempt(
       return { status: 409 as const, body: { error: "Lượt thi chính thức này đã được nộp." } };
     }
 
+    if (attempt.test_status !== "active") {
+      return { status: 409 as const, body: { error: "Bài test đã được lưu trữ, không thể nộp bài." } };
+    }
+
     if (attempt.status === "passed") {
       return { status: 409 as const, body: { error: "Bài chính thức đã được ghi nhận, không thể nộp lại." } };
     }
@@ -240,9 +246,8 @@ async function submitOfficialAttempt(
       SELECT
         aqo.question_id,
         aqo.option_id,
-        ao.is_correct
+        aqo.is_correct_snapshot AS is_correct
       FROM attempt_question_options aqo
-      JOIN answer_options ao ON ao.id = aqo.option_id
       WHERE aqo.attempt_id = ?
       ORDER BY aqo.question_id, aqo.option_order
       `,
@@ -387,8 +392,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: normalized.error ?? "Thiếu bài test hoặc đáp án." }, { status: 400 });
   }
 
-  await ensureAttemptPassScoreSnapshotColumn();
-
   if (isOfficialMode(mode)) {
     if (!Number.isInteger(attemptId) || attemptId <= 0) {
       return NextResponse.json({ error: "Thiếu lượt thi chính thức." }, { status: 400 });
@@ -415,7 +418,8 @@ export async function POST(request: Request) {
         COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
         ta.official_attempts_used,
         ta.official_score,
-        ta.status
+        ta.status,
+        t.status AS test_status
       FROM test_assignments ta
       JOIN tests t ON t.id = ta.test_id
       LEFT JOIN (
@@ -433,6 +437,10 @@ export async function POST(request: Request) {
     const assignment = assignmentRows[0];
     if (!assignment) {
       return { status: 404 as const, body: { error: "Nhân sự chưa được giao bài test này." } };
+    }
+
+    if (assignment.test_status !== "active") {
+      return { status: 409 as const, body: { error: "Bài test đã được lưu trữ, không thể nộp bài." } };
     }
 
     if (mode === "official" && assignment.status === "passed") {

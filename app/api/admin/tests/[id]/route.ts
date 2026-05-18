@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { canManageAssignments, getCurrentUser } from "@/lib/auth";
 import { executeQuery, queryRows, withTransaction } from "@/lib/db";
 
 type RouteContext = {
@@ -66,15 +66,15 @@ function parseMaterialIds(value: unknown) {
   return [...new Set(ids)];
 }
 
-async function requireAdmin(request: Request) {
+async function requireTestManager(request: Request) {
   const currentUser = await getCurrentUser(request);
-  return currentUser && isAdmin(currentUser) ? currentUser : null;
+  return currentUser && canManageAssignments(currentUser) ? currentUser : null;
 }
 
 export async function GET(request: Request, context: RouteContext) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireTestManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được xem chi tiết bài test." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền xem chi tiết bài test." }, { status: 403 });
   }
 
   const { id } = await context.params;
@@ -167,9 +167,9 @@ export async function GET(request: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireTestManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được sửa bài test." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền sửa bài test." }, { status: 403 });
   }
 
   const { id } = await context.params;
@@ -255,9 +255,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireTestManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được khóa bài test." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền khóa bài test." }, { status: 403 });
   }
 
   const { id } = await context.params;

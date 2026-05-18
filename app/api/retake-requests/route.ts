@@ -10,6 +10,7 @@ type AssignmentRow = RowDataPacket & {
   official_attempts_used: number;
   max_official_attempts: number;
   approved_retake_count: number;
+  test_status: string;
 };
 
 type PendingRetakeRow = RowDataPacket & {
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
         ta.status,
         ta.official_attempts_used,
         t.max_official_attempts,
+        t.status AS test_status,
         COALESCE(retake.approved_retake_count, 0) AS approved_retake_count
       FROM test_assignments ta
       JOIN tests t ON t.id = ta.test_id
@@ -67,6 +69,10 @@ export async function POST(request: Request) {
     const assignment = assignmentRows[0];
     if (!assignment) {
       return { status: 404 as const, body: { error: "Bạn chưa được giao bài test này." } };
+    }
+
+    if (assignment.test_status !== "active") {
+      return { status: 409 as const, body: { error: "Bài test đã được lưu trữ, không thể xin thi lại." } };
     }
 
     if (assignment.status !== "failed") {

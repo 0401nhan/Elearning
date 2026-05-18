@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { getCurrentUser } from "@/lib/auth";
-import { ensureAttemptQuestionOptionsTable } from "@/lib/attempt-schema";
 import { toNumber, withTransaction } from "@/lib/db";
 
 type AssignmentLockRow = RowDataPacket & {
@@ -17,6 +16,7 @@ type AssignmentLockRow = RowDataPacket & {
   approved_retake_count: number;
   randomize_questions: number;
   randomize_answers: number;
+  test_status: string;
   assignment_status: string;
   official_attempts_used: number;
   official_score: string | number | null;
@@ -35,17 +35,25 @@ type CountRow = RowDataPacket & {
 
 type QuestionIdRow = RowDataPacket & {
   id: number;
+  group_name: string | null;
+  question_text: string;
+  explanation: string | null;
+  difficulty: string;
 };
 
 type OptionIdRow = RowDataPacket & {
   id: number;
   question_id: number;
+  option_label: string;
+  option_text: string;
+  is_correct: number;
 };
 
 type AttemptQuestionRow = RowDataPacket & {
   id: number;
   group_name: string | null;
   question_text: string;
+  explanation: string | null;
   difficulty: string;
 };
 
@@ -92,13 +100,12 @@ async function buildAttemptPayload(connection: PoolConnection, assignment: Assig
   const [questionRows] = await connection.query<AttemptQuestionRow[]>(
     `
     SELECT
-      q.id,
-      qg.name AS group_name,
-      q.question_text,
-      q.difficulty
+      aq.question_id AS id,
+      aq.group_name_snapshot AS group_name,
+      COALESCE(aq.question_text_snapshot, CONCAT('Câu hỏi #', aq.question_id)) AS question_text,
+      aq.explanation_snapshot AS explanation,
+      COALESCE(aq.difficulty_snapshot, 'medium') AS difficulty
     FROM attempt_questions aq
-    JOIN questions q ON q.id = aq.question_id
-    LEFT JOIN question_groups qg ON qg.id = q.group_id
     WHERE aq.attempt_id = ?
     ORDER BY aq.question_order
     `,
@@ -108,12 +115,11 @@ async function buildAttemptPayload(connection: PoolConnection, assignment: Assig
   const [optionRows] = await connection.query<AttemptOptionRow[]>(
     `
     SELECT
-      ao.id,
+      aqo.option_id AS id,
       aqo.question_id,
-      ao.option_label,
-      ao.option_text
+      COALESCE(aqo.option_label_snapshot, '') AS option_label,
+      COALESCE(aqo.option_text_snapshot, '') AS option_text
     FROM attempt_question_options aqo
-    JOIN answer_options ao ON ao.id = aqo.option_id
     WHERE aqo.attempt_id = ?
     ORDER BY aqo.question_id, aqo.option_order
     `,
@@ -184,8 +190,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Thiếu bài test hoặc chế độ thi chính thức." }, { status: 400 });
   }
 
-  await ensureAttemptQuestionOptionsTable();
-
   const result = await withTransaction(async (connection) => {
     const [assignmentRows] = await connection.query<AssignmentLockRow[]>(
       `
@@ -201,6 +205,7 @@ export async function POST(request: Request) {
         COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
         t.randomize_questions,
         t.randomize_answers,
+        t.status AS test_status,
         ta.status AS assignment_status,
         ta.official_attempts_used,
         ta.official_score
@@ -221,6 +226,10 @@ export async function POST(request: Request) {
     const assignment = assignmentRows[0];
     if (!assignment) {
       return { status: 404 as const, body: { error: "Nhân sự chưa được giao bài test này." } };
+    }
+
+    if (assignment.test_status !== "active") {
+      return { status: 409 as const, body: { error: "Bài test đã được lưu trữ, không thể làm bài." } };
     }
 
     if (assignment.assignment_status === "passed") {
@@ -261,10 +270,16 @@ export async function POST(request: Request) {
 
     const [questionRows] = await connection.query<QuestionIdRow[]>(
       `
-      SELECT id
-      FROM questions
-      WHERE test_id = ? AND is_active = 1
-      ORDER BY ${assignment.randomize_questions ? "RAND()" : "id"}
+      SELECT
+        q.id,
+        qg.name AS group_name,
+        q.question_text,
+        q.explanation,
+        q.difficulty
+      FROM questions q
+      LEFT JOIN question_groups qg ON qg.id = q.group_id
+      WHERE q.test_id = ? AND q.is_active = 1
+      ORDER BY ${assignment.randomize_questions ? "RAND()" : "q.id"}
       LIMIT ${getQuestionLimit(assignment.question_count)}
       `,
       [testId]
@@ -292,13 +307,33 @@ export async function POST(request: Request) {
     const attemptId = Number(attemptResult.insertId);
     const questionIds = questionRows.map((question) => Number(question.id));
 
-    await connection.query("INSERT INTO attempt_questions (attempt_id, question_id, question_order) VALUES ?", [
-      questionIds.map((questionId, index) => [attemptId, questionId, index + 1])
-    ]);
+    await connection.query(
+      `
+      INSERT INTO attempt_questions
+        (attempt_id, question_id, question_order, question_text_snapshot, explanation_snapshot, difficulty_snapshot, group_name_snapshot)
+      VALUES ?
+      `,
+      [
+        questionRows.map((question, index) => [
+          attemptId,
+          Number(question.id),
+          index + 1,
+          question.question_text,
+          question.explanation,
+          question.difficulty,
+          question.group_name
+        ])
+      ]
+    );
 
     const [optionRows] = await connection.query<OptionIdRow[]>(
       `
-      SELECT ao.id, ao.question_id
+      SELECT
+        ao.id,
+        ao.question_id,
+        ao.option_label,
+        ao.option_text,
+        ao.is_correct
       FROM answer_options ao
       JOIN questions q ON q.id = ao.question_id
       WHERE q.id IN (?)
@@ -313,11 +348,23 @@ export async function POST(request: Request) {
         const questionId = Number(option.question_id);
         const optionOrder = (optionOrderByQuestion.get(questionId) ?? 0) + 1;
         optionOrderByQuestion.set(questionId, optionOrder);
-        return [attemptId, questionId, Number(option.id), optionOrder];
+        return [
+          attemptId,
+          questionId,
+          Number(option.id),
+          optionOrder,
+          option.option_label,
+          option.option_text,
+          Number(option.is_correct) ? 1 : 0
+        ];
       });
 
       await connection.query(
-        "INSERT INTO attempt_question_options (attempt_id, question_id, option_id, option_order) VALUES ?",
+        `
+        INSERT INTO attempt_question_options
+          (attempt_id, question_id, option_id, option_order, option_label_snapshot, option_text_snapshot, is_correct_snapshot)
+        VALUES ?
+        `,
         [optionInsertRows]
       );
     }

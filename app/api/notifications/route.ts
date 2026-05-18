@@ -35,34 +35,11 @@ function cleanText(value: string | null) {
   return text || null;
 }
 
-async function ensureNotificationReadsTable() {
-  await executeQuery<ResultSetHeader>(`
-    CREATE TABLE IF NOT EXISTS notification_reads (
-      notification_id BIGINT UNSIGNED NOT NULL,
-      employee_id BIGINT UNSIGNED NOT NULL,
-      is_read TINYINT(1) NOT NULL DEFAULT 1,
-      read_at DATETIME NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (notification_id, employee_id),
-      KEY idx_notification_reads_employee (employee_id, is_read),
-      CONSTRAINT fk_notification_reads_notification
-        FOREIGN KEY (notification_id) REFERENCES notifications(id)
-        ON DELETE CASCADE,
-      CONSTRAINT fk_notification_reads_employee
-        FOREIGN KEY (employee_id) REFERENCES employees(id)
-        ON DELETE CASCADE
-    ) ENGINE=InnoDB
-  `);
-}
-
 export async function GET(request: Request) {
   const employee = await getCurrentUser(request);
   if (!employee) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
-
-  await ensureNotificationReadsTable();
 
   const { searchParams } = new URL(request.url);
   const type = cleanText(searchParams.get("type"));
@@ -157,8 +134,6 @@ export async function PATCH(request: Request) {
   if (!employee) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
-
-  await ensureNotificationReadsTable();
 
   const body = await request.json().catch(() => null);
   const action = String(body?.action ?? "read");

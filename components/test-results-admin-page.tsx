@@ -13,6 +13,7 @@ import {
   Star
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { isAdminUser } from "@/lib/permissions";
 import type { ResultStatus, SessionUser, TestStatus } from "@/lib/types";
 import { Avatar, StatusPill } from "./shared";
 
@@ -159,7 +160,8 @@ export function TestResultsAdminPage({
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [retakeActionId, setRetakeActionId] = useState<number | null>(null);
-  const isFullAdmin = user.roles.includes("admin");
+  const isFullAdmin = isAdminUser(user);
+  const canReviewRetakeRequests = isFullAdmin;
   const pagination = data?.resultsPagination ?? {
     page,
     pageSize: RESULTS_PAGE_SIZE,
@@ -300,6 +302,11 @@ export function TestResultsAdminPage({
   }
 
   async function reviewRetakeRequest(requestId: number, action: "approve" | "reject") {
+    if (!canReviewRetakeRequests) {
+      setRetakeError("Chỉ admin được duyệt yêu cầu thi lại.");
+      return;
+    }
+
     const reviewNote =
       action === "reject" ? window.prompt("Nhập lý do từ chối yêu cầu thi lại:") : "";
 
@@ -495,7 +502,7 @@ export function TestResultsAdminPage({
                 <th>Lượt đã dùng</th>
                 <th>Lý do</th>
                 <th>Ngày gửi</th>
-                <th>Duyệt</th>
+                <th>{canReviewRetakeRequests ? "Duyệt" : "Trạng thái"}</th>
               </tr>
             </thead>
             <tbody>
@@ -514,24 +521,28 @@ export function TestResultsAdminPage({
                   <td>{request.reason ?? "--"}</td>
                   <td>{formatDateTime(request.requestedAt)}</td>
                   <td>
-                    <span className="row-actions">
-                      <button
-                        className="primary-button"
-                        type="button"
-                        onClick={() => reviewRetakeRequest(request.id, "approve")}
-                        disabled={retakeActionId === request.id}
-                      >
-                        <CheckCircle2 size={16} /> Duyệt
-                      </button>
-                      <button
-                        className="outline-button"
-                        type="button"
-                        onClick={() => reviewRetakeRequest(request.id, "reject")}
-                        disabled={retakeActionId === request.id}
-                      >
-                        <ShieldX size={16} /> Từ chối
-                      </button>
-                    </span>
+                    {canReviewRetakeRequests ? (
+                      <span className="row-actions">
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => reviewRetakeRequest(request.id, "approve")}
+                          disabled={retakeActionId === request.id}
+                        >
+                          <CheckCircle2 size={16} /> Duyệt
+                        </button>
+                        <button
+                          className="outline-button"
+                          type="button"
+                          onClick={() => reviewRetakeRequest(request.id, "reject")}
+                          disabled={retakeActionId === request.id}
+                        >
+                          <ShieldX size={16} /> Từ chối
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="status-pill learning">Chờ admin duyệt</span>
+                    )}
                   </td>
                 </tr>
               ))}

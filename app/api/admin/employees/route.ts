@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { getCurrentUser, hashPassword, isAdmin } from "@/lib/auth";
+import { canViewPeopleResults, getCurrentUser, hashPassword, isAdmin } from "@/lib/auth";
 import { DEFAULT_WORK_AREAS } from "@/lib/constants";
 import { queryRows, withTransaction } from "@/lib/db";
 
@@ -94,8 +94,12 @@ function mapEmployee(row: EmployeeRow) {
 
 export async function GET(request: Request) {
   const currentUser = await getCurrentUser(request);
-  if (!requireAdmin(currentUser)) {
-    return NextResponse.json({ error: "Chỉ admin được quản lý nhân sự." }, { status: currentUser ? 403 : 401 });
+  if (!currentUser) {
+    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
+
+  if (!canViewPeopleResults(currentUser)) {
+    return NextResponse.json({ error: "Không có quyền xem danh sách nhân sự." }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -109,6 +113,7 @@ export async function GET(request: Request) {
 
   const where: string[] = [];
   const values: (string | number)[] = [];
+  const isFullAdmin = isAdmin(currentUser);
 
   if (status === "active") {
     where.push("e.is_active = 1");
@@ -122,9 +127,12 @@ export async function GET(request: Request) {
     values.push(like, like, like, like, like);
   }
 
-  if (departmentId > 0) {
+  if (isFullAdmin && departmentId > 0) {
     where.push("e.department_id = ?");
     values.push(departmentId);
+  } else if (!isFullAdmin) {
+    where.push("e.department_id = ?");
+    values.push(currentUser.departmentId);
   }
 
   if (workArea) {
@@ -142,16 +150,37 @@ export async function GET(request: Request) {
   const onlineWhere = [...where, "e.is_active = 1", `e.last_login_at >= DATE_SUB(NOW(), INTERVAL ${ONLINE_THRESHOLD_MINUTES} MINUTE)`];
   const onlineWhereSql = `WHERE ${onlineWhere.join(" AND ")}`;
 
+  const departmentOptionsSql = isFullAdmin
+    ? "SELECT id, code, name FROM departments ORDER BY id"
+    : "SELECT id, code, name FROM departments WHERE id = ? ORDER BY id";
+  const departmentOptionsValues = isFullAdmin ? [] : [currentUser.departmentId];
+  const optionScopeSql = isFullAdmin ? "" : "WHERE department_id = ?";
+  const optionScopeValues = isFullAdmin ? [] : [currentUser.departmentId];
+
   const [countRows, onlineRows, departments, roles, areas, positions] = await Promise.all([
     queryRows<CountRow[]>(`SELECT COUNT(*) AS total FROM employees e ${whereSql}`, values),
     queryRows<CountRow[]>(`SELECT COUNT(*) AS total FROM employees e ${onlineWhereSql}`, values),
-    queryRows<DepartmentRow[]>("SELECT id, code, name FROM departments ORDER BY id"),
+    queryRows<DepartmentRow[]>(departmentOptionsSql, departmentOptionsValues),
     queryRows<RoleRow[]>("SELECT id, code, name FROM roles ORDER BY id"),
     queryRows<DistinctRow[]>(
-      "SELECT DISTINCT work_area AS value FROM employees WHERE work_area IS NOT NULL AND work_area <> '' ORDER BY work_area"
+      `
+      SELECT DISTINCT work_area AS value
+      FROM employees
+      ${optionScopeSql}
+      ${optionScopeSql ? "AND" : "WHERE"} work_area IS NOT NULL AND work_area <> ''
+      ORDER BY work_area
+      `,
+      optionScopeValues
     ),
     queryRows<DistinctRow[]>(
-      "SELECT DISTINCT position_title AS value FROM employees WHERE position_title IS NOT NULL AND position_title <> '' ORDER BY position_title"
+      `
+      SELECT DISTINCT position_title AS value
+      FROM employees
+      ${optionScopeSql}
+      ${optionScopeSql ? "AND" : "WHERE"} position_title IS NOT NULL AND position_title <> ''
+      ORDER BY position_title
+      `,
+      optionScopeValues
     )
   ]);
 

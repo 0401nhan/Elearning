@@ -139,17 +139,14 @@ async function ensureAttemptQuestionOptionsTable(connection) {
       question_id BIGINT UNSIGNED NOT NULL,
       option_id BIGINT UNSIGNED NOT NULL,
       option_order INT NOT NULL,
+      option_label_snapshot CHAR(1) NULL,
+      option_text_snapshot TEXT NULL,
+      is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0,
       PRIMARY KEY (id),
       UNIQUE KEY uq_attempt_question_options_order (attempt_id, question_id, option_order),
       UNIQUE KEY uq_attempt_question_options_option (attempt_id, question_id, option_id),
       CONSTRAINT fk_attempt_question_options_attempt
         FOREIGN KEY (attempt_id) REFERENCES test_attempts(id)
-        ON DELETE CASCADE,
-      CONSTRAINT fk_attempt_question_options_question
-        FOREIGN KEY (question_id) REFERENCES questions(id)
-        ON DELETE CASCADE,
-      CONSTRAINT fk_attempt_question_options_option
-        FOREIGN KEY (option_id) REFERENCES answer_options(id)
         ON DELETE CASCADE
     ) ENGINE=InnoDB
   `);

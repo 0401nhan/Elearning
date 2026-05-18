@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { canManageQuestions, getCurrentUser } from "@/lib/auth";
+import { buildCsv } from "@/lib/csv";
 import { queryRows, withTransaction } from "@/lib/db";
 
 type TestRow = RowDataPacket & {
@@ -95,11 +96,6 @@ function normalizeLooseText(value: string) {
 
 function normalizeQuestionText(value: string) {
   return normalizeLooseText(value).replace(/\s+/g, " ");
-}
-
-function csvCell(value: string | number | boolean | null | undefined) {
-  const text = String(value ?? "");
-  return `"${text.replace(/"/g, '""')}"`;
 }
 
 function parseDifficulty(value: string) {
@@ -252,13 +248,9 @@ function validateCsvRows(parsed: CsvParseResult) {
   return { errors, questions };
 }
 
-async function requireAdmin(request: Request) {
+async function requireQuestionManager(request: Request) {
   const currentUser = await getCurrentUser(request);
-  return currentUser && isAdmin(currentUser) ? currentUser : null;
-}
-
-function buildCsv(rows: (string | number | boolean | null | undefined)[][]) {
-  return `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+  return currentUser && canManageQuestions(currentUser) ? currentUser : null;
 }
 
 function mapExportRows(rows: ExportQuestionRow[]) {
@@ -310,9 +302,9 @@ function mapExportRows(rows: ExportQuestionRow[]) {
 }
 
 export async function GET(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireQuestionManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được tải mẫu CSV." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền tải mẫu CSV." }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -425,9 +417,9 @@ async function getOrCreateGroupId(
 }
 
 export async function POST(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireQuestionManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được nhập câu hỏi bằng CSV." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền nhập câu hỏi bằng CSV." }, { status: 403 });
   }
 
   const formData = await request.formData().catch(() => null);

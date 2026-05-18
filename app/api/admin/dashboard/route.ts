@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
-import { canViewPeopleResults, getCurrentUser, isAdmin } from "@/lib/auth";
-import { ensureAttemptPassScoreSnapshotColumn } from "@/lib/attempt-schema";
+import { canReadAdminDashboard, getCurrentUser, isAdmin } from "@/lib/auth";
+import { buildCsv } from "@/lib/csv";
 import { queryRows, toNumber } from "@/lib/db";
 
 type MetricsRow = RowDataPacket & {
@@ -64,11 +64,6 @@ type TestOptionRow = RowDataPacket & {
   title: string;
 };
 
-function csvCell(value: string | number | null | undefined) {
-  const text = String(value ?? "");
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 function statusLabelPlain(status: string) {
   if (status === "passed") return "Đạt";
   if (status === "failed") return "Chưa đạt";
@@ -99,10 +94,10 @@ function toResultsCsv(rows: ResultRow[]) {
     "Trang thai",
     "Nguoi duyet lam lai"
   ];
-  const lines = [
-    header.map(csvCell).join(","),
-    ...rows.map((row) =>
-      [
+  return buildCsv(
+    [
+      header,
+      ...rows.map((row) => [
         row.full_name,
         row.phone,
         row.department_name,
@@ -117,13 +112,10 @@ function toResultsCsv(rows: ResultRow[]) {
         row.latest_activity_at ?? "",
         statusLabelPlain(row.assignment_status),
         row.retake_reviewer ?? ""
-      ]
-        .map(csvCell)
-        .join(",")
-    )
-  ];
-
-  return `\uFEFF${lines.join("\n")}`;
+      ])
+    ],
+    "\n"
+  );
 }
 
 function getIntegerParam(value: string | null, fallback: number, min: number, max: number) {
@@ -151,11 +143,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
 
-  if (!canViewPeopleResults(employee)) {
-    return NextResponse.json({ error: "Không có quyền xem kết quả nhân sự." }, { status: 403 });
+  if (!canReadAdminDashboard(employee)) {
+    return NextResponse.json({ error: "Không có quyền xem dashboard." }, { status: 403 });
   }
-
-  await ensureAttemptPassScoreSnapshotColumn();
 
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") ?? "json";
@@ -255,18 +245,19 @@ export async function GET(request: Request) {
     queryRows<WrongQuestionRow[]>(
       `
       SELECT
-        q.id AS question_id,
+        aa.question_id,
         COUNT(*) AS wrong_count,
-        q.question_text
+        COALESCE(aq.question_text_snapshot, q.question_text, CONCAT('Câu hỏi #', aa.question_id)) AS question_text
       FROM attempt_answers aa
       JOIN test_attempts attempt ON attempt.id = aa.attempt_id
+      LEFT JOIN attempt_questions aq ON aq.attempt_id = aa.attempt_id AND aq.question_id = aa.question_id
       JOIN test_assignments ta ON ta.id = attempt.assignment_id
       JOIN employees e ON e.id = attempt.employee_id
       JOIN tests t ON t.id = attempt.test_id
-      JOIN questions q ON q.id = aa.question_id
+      LEFT JOIN questions q ON q.id = aa.question_id
       ${wrongQuestionWhereSql}
-      GROUP BY q.id, q.question_text
-      ORDER BY wrong_count DESC, q.id
+      GROUP BY aa.question_id, question_text
+      ORDER BY wrong_count DESC, aa.question_id
       LIMIT 5
       `,
       filterValues

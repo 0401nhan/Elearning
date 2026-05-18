@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import { canViewPeopleResults, getCurrentUser, isAdmin } from "@/lib/auth";
+import { buildCsv } from "@/lib/csv";
 import { queryRows, toNumber } from "@/lib/db";
 
 type DepartmentOptionRow = RowDataPacket & {
@@ -63,18 +64,14 @@ function formatStatus(value: string | null) {
   return "Chưa làm";
 }
 
-function csvCell(value: string | number | null | undefined) {
-  const text = String(value ?? "");
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 function toCsv(columns: ReportColumn[], rows: Record<string, string | number | null>[]) {
-  const lines = [
-    columns.map((column) => csvCell(column.label)).join(","),
-    ...rows.map((row) => columns.map((column) => csvCell(row[column.key])).join(","))
-  ];
-
-  return `\uFEFF${lines.join("\n")}`;
+  return buildCsv(
+    [
+      columns.map((column) => column.label),
+      ...rows.map((row) => columns.map((column) => row[column.key]))
+    ],
+    "\n"
+  );
 }
 
 function getFilename(reportType: string) {
@@ -283,19 +280,20 @@ export async function GET(request: Request) {
       `
       SELECT
         t.title AS test_title,
-        q.id AS question_id,
-        q.question_text,
+        aa.question_id,
+        COALESCE(aq.question_text_snapshot, q.question_text, CONCAT('Câu hỏi #', aa.question_id)) AS question_text,
         COUNT(*) AS wrong_count,
         COUNT(DISTINCT attempt.employee_id) AS affected_employees
       FROM attempt_answers aa
       JOIN test_attempts attempt ON attempt.id = aa.attempt_id
+      LEFT JOIN attempt_questions aq ON aq.attempt_id = aa.attempt_id AND aq.question_id = aa.question_id
       JOIN test_assignments ta ON ta.id = attempt.assignment_id
       JOIN employees e ON e.id = attempt.employee_id
       JOIN tests t ON t.id = attempt.test_id
-      JOIN questions q ON q.id = aa.question_id
+      LEFT JOIN questions q ON q.id = aa.question_id
       ${whereSql ? `${whereSql} AND attempt.submitted_at IS NOT NULL AND aa.is_correct = 0` : "WHERE attempt.submitted_at IS NOT NULL AND aa.is_correct = 0"}
-      GROUP BY t.id, t.title, q.id, q.question_text
-      ORDER BY wrong_count DESC, q.id
+      GROUP BY t.id, t.title, aa.question_id, question_text
+      ORDER BY wrong_count DESC, aa.question_id
       LIMIT ${limit}
       `,
       filterValues

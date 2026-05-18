@@ -8,6 +8,7 @@ type DraftAttemptRow = RowDataPacket & {
   duration_minutes: number;
   elapsed_seconds: number;
   submitted_at: string | null;
+  test_status: string;
 };
 
 type DraftOptionRow = RowDataPacket & {
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       SELECT
         attempt.id AS attempt_id,
         t.duration_minutes,
+        t.status AS test_status,
         TIMESTAMPDIFF(SECOND, attempt.started_at, NOW()) AS elapsed_seconds,
         DATE_FORMAT(attempt.submitted_at, '%Y-%m-%d %H:%i:%s') AS submitted_at
       FROM test_attempts attempt
@@ -65,6 +67,10 @@ export async function POST(request: Request) {
       return { status: 409 as const, body: { error: "Lượt thi này đã được nộp." } };
     }
 
+    if (attempt.test_status !== "active") {
+      return { status: 409 as const, body: { error: "Bài test đã được lưu trữ, không thể tiếp tục làm bài." } };
+    }
+
     if (Number(attempt.elapsed_seconds) > Number(attempt.duration_minutes) * 60) {
       return { status: 409 as const, body: { error: "Đã hết thời gian làm bài." } };
     }
@@ -74,9 +80,8 @@ export async function POST(request: Request) {
       SELECT
         aqo.question_id,
         aqo.option_id,
-        ao.is_correct
+        aqo.is_correct_snapshot AS is_correct
       FROM attempt_question_options aqo
-      JOIN answer_options ao ON ao.id = aqo.option_id
       WHERE aqo.attempt_id = ?
         AND aqo.question_id = ?
         AND aqo.option_id = ?

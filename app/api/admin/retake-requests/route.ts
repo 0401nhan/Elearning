@@ -132,8 +132,8 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
 
-  if (!canViewPeopleResults(employee)) {
-    return NextResponse.json({ error: "Không có quyền duyệt yêu cầu thi lại." }, { status: 403 });
+  if (!isAdmin(employee)) {
+    return NextResponse.json({ error: "Chỉ admin được duyệt yêu cầu thi lại." }, { status: 403 });
   }
 
   const body = await request.json().catch(() => null);
@@ -170,10 +170,6 @@ export async function PATCH(request: Request) {
     const target = targetRows[0];
     if (!target) {
       return { status: 404 as const, body: { error: "Không tìm thấy yêu cầu thi lại." } };
-    }
-
-    if (!isAdmin(employee) && Number(target.department_id) !== Number(employee.departmentId)) {
-      return { status: 403 as const, body: { error: "Không có quyền duyệt yêu cầu của phòng ban này." } };
     }
 
     if (target.status !== "pending") {

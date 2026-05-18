@@ -124,4 +124,5 @@ export type SessionUser = {
   position: string | null;
   avatarInitial: string | null;
   roles: string[];
+  permissions: string[];
 };

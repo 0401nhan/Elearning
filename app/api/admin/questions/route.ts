@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { canManageQuestions, getCurrentUser } from "@/lib/auth";
 import { queryRows, withTransaction } from "@/lib/db";
 
 type QuestionRow = RowDataPacket & {
@@ -170,15 +170,15 @@ function mapQuestions(rows: QuestionRow[]) {
   );
 }
 
-async function requireAdmin(request: Request) {
+async function requireQuestionManager(request: Request) {
   const currentUser = await getCurrentUser(request);
-  return currentUser && isAdmin(currentUser) ? currentUser : null;
+  return currentUser && canManageQuestions(currentUser) ? currentUser : null;
 }
 
 export async function GET(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireQuestionManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được quản lý ngân hàng câu hỏi." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền quản lý ngân hàng câu hỏi." }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -355,9 +355,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireQuestionManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được thêm câu hỏi." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền thêm câu hỏi." }, { status: 403 });
   }
 
   const body = await request.json().catch(() => null);

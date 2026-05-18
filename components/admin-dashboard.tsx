@@ -7,6 +7,7 @@ import {
   Clock3,
   Download,
   Eye,
+  FileText,
   Mail,
   RefreshCw,
   Search,
@@ -16,8 +17,17 @@ import {
   Upload,
   Users
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { adminNavItems } from "@/lib/mock-data";
+import {
+  canManageAssignmentsUser,
+  canManageMaterialsUser,
+  canManageQuestionsUser,
+  canManageSystemUser,
+  canReadAdminDashboardUser,
+  canViewPeopleResultsUser,
+  isAdminUser
+} from "@/lib/permissions";
 import type { Metric, ResultStatus, Screen, SessionUser, TestStatus, ThemeMode } from "@/lib/types";
 import { AdminSectionPage } from "./admin-section-page";
 import { AssignmentManagementPage } from "./assignment-management-page";
@@ -174,6 +184,20 @@ function getPageNumbers(currentPage: number, totalPages: number) {
 
 const RESULTS_PAGE_SIZE = 10;
 
+function canViewAdminNavItem(label: string, user: SessionUser) {
+  if (isAdminUser(user)) return true;
+  if (label === "Tổng quan") return canReadAdminDashboardUser(user);
+  if (label === "Quản lý bài test") return canManageAssignmentsUser(user);
+  if (label === "Giao test cho nhân sự") return canManageAssignmentsUser(user);
+  if (label === "Kết quả test") return canViewPeopleResultsUser(user);
+  if (label === "Nhân sự") return canViewPeopleResultsUser(user);
+  if (label === "Ngân hàng câu hỏi") return canManageQuestionsUser(user);
+  if (label === "Tài liệu đào tạo") return canManageMaterialsUser(user);
+  if (label === "Báo cáo") return canViewPeopleResultsUser(user);
+  if (label === "Cài đặt hệ thống") return canManageSystemUser(user);
+  return false;
+}
+
 export function AdminDashboard({
   setScreen,
   user,
@@ -203,9 +227,20 @@ export function AdminDashboard({
   const [refreshKey, setRefreshKey] = useState(0);
   const [isNoticeOpen, setIsNoticeOpen] = useState(false);
   const [isNoticeLoading, setIsNoticeLoading] = useState(false);
-  const activeAdminItem = adminNavItems[activeAdminIndex];
-  const isFullAdmin = user.roles.includes("admin");
-  const resultsNavIndex = adminNavItems.findIndex((item) => item.label === "Kết quả test");
+  const isFullAdmin = isAdminUser(user);
+  const canReadDashboard = canReadAdminDashboardUser(user);
+  const canViewResults = canViewPeopleResultsUser(user);
+  const canManageAssignments = canManageAssignmentsUser(user);
+  const canManageQuestions = canManageQuestionsUser(user);
+  const canManageMaterials = canManageMaterialsUser(user);
+  const canManageSystem = canManageSystemUser(user);
+  const adminRoleLabel = isFullAdmin ? "Admin" : canManageSystem || canManageAssignments || canManageQuestions || canManageMaterials ? "Quản trị phân quyền" : "Trưởng phòng";
+  const visibleAdminNavItems = useMemo(
+    () => adminNavItems.filter((item) => canViewAdminNavItem(item.label, user)),
+    [user]
+  );
+  const activeAdminItem = visibleAdminNavItems[activeAdminIndex] ?? visibleAdminNavItems[0] ?? adminNavItems[0];
+  const resultsNavIndex = visibleAdminNavItems.findIndex((item) => item.label === "Kết quả test");
   const retakeNoticeCount = retakeRequests.length;
   const resultsPagination = dashboard?.resultsPagination ?? {
     page: resultsPage,
@@ -226,9 +261,21 @@ export function AdminDashboard({
   const maxTrendTotal = Math.max(1, ...(dashboard?.completionTrend ?? []).map((point) => point.total));
 
   useEffect(() => {
+    if (activeAdminIndex >= visibleAdminNavItems.length) {
+      setActiveAdminIndex(0);
+    }
+  }, [activeAdminIndex, visibleAdminNavItems.length]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadDashboard() {
+      if (!canReadDashboard) {
+        setDashboard(null);
+        setLoadError("");
+        return;
+      }
+
       setLoadError("");
 
       try {
@@ -270,9 +317,15 @@ export function AdminDashboard({
     return () => {
       isMounted = false;
     };
-  }, [dateFrom, dateTo, departmentFilter, refreshKey, resultSearch, resultsPage, statusFilter, testFilter, timeRange]);
+  }, [canReadDashboard, dateFrom, dateTo, departmentFilter, refreshKey, resultSearch, resultsPage, statusFilter, testFilter, timeRange]);
 
-  async function loadRetakeNotices() {
+  const loadRetakeNotices = useCallback(async () => {
+    if (!canViewResults) {
+      setRetakeRequests([]);
+      setNoticeError("");
+      return;
+    }
+
     setIsNoticeLoading(true);
     setNoticeError("");
 
@@ -291,11 +344,11 @@ export function AdminDashboard({
     } finally {
       setIsNoticeLoading(false);
     }
-  }
+  }, [canViewResults]);
 
   useEffect(() => {
     void loadRetakeNotices();
-  }, [refreshKey]);
+  }, [loadRetakeNotices, refreshKey]);
 
   function resetResultsPage() {
     if (resultsPage !== 1) {
@@ -386,7 +439,7 @@ export function AdminDashboard({
       <aside className="sidebar admin-sidebar">
         <BrandMark compact />
         <nav className="side-nav">
-          {adminNavItems.map((item, index) => {
+          {visibleAdminNavItems.map((item, index) => {
             const Icon = item.icon;
             return (
               <button
@@ -467,21 +520,21 @@ export function AdminDashboard({
                 )}
 
                 <button className="primary-button" type="button" onClick={openRetakeRequestsPage}>
-                  Xem và xử lý yêu cầu
+                  {isFullAdmin ? "Xem và xử lý yêu cầu" : "Xem yêu cầu"}
                 </button>
               </section>
             )}
           </div>
           <UserActions
             user={user}
-            roleLabel={user.roles.includes("admin") ? "Admin" : "Trưởng phòng"}
+            roleLabel={adminRoleLabel}
             onLogout={onLogout}
             onOpenProfile={() => setScreen("profile")}
           />
         </header>
 
         <div className="admin-content">
-          {activeAdminIndex === 0 ? (
+          {activeAdminItem.label === "Tổng quan" ? (
             <>
               <section className="admin-metrics">
                 {dashboardMetrics.map((metric) => (
@@ -741,33 +794,46 @@ export function AdminDashboard({
               </section>
 
               <section className="quick-actions">
-            <ActionCard icon={Download} label="Export Excel" text="Xuất dữ liệu kết quả test" />
-            <ActionCard icon={Mail} label="Gửi nhắc nhở" text="Nhắc nhân sự chưa hoàn thành" />
-            <ActionCard icon={RefreshCw} label="Mở lại lượt thi" text="Duyệt cho nhân sự thi lại" />
-            <ActionCard icon={Upload} label="Upload ngân hàng câu hỏi" text="Cập nhật câu hỏi mới" />
-            <ActionCard icon={Upload} label="Upload tài liệu đào tạo" text="Tài liệu học & hướng dẫn" />
+            {isFullAdmin ? (
+              <>
+                <ActionCard icon={Download} label="Export Excel" text="Xuất dữ liệu kết quả test" />
+                <ActionCard icon={Mail} label="Gửi nhắc nhở" text="Nhắc nhân sự chưa hoàn thành" />
+                <ActionCard icon={RefreshCw} label="Mở lại lượt thi" text="Duyệt cho nhân sự thi lại" />
+                <ActionCard icon={Upload} label="Upload ngân hàng câu hỏi" text="Cập nhật câu hỏi mới" />
+                <ActionCard icon={Upload} label="Upload tài liệu đào tạo" text="Tài liệu học & hướng dẫn" />
+              </>
+            ) : (
+              <>
+                {canViewResults && <ActionCard icon={Eye} label="Xem kết quả" text="Theo dõi kết quả nhân sự thuộc phòng ban" />}
+                {canViewResults && <ActionCard icon={Download} label="Export CSV" text="Tải báo cáo trong phạm vi phòng ban" />}
+                {canViewResults && <ActionCard icon={BarChart3} label="Báo cáo" text="Xem tổng hợp tiến độ và điểm số" />}
+                {canManageAssignments && <ActionCard icon={FileText} label="Giao test" text="Giao bài test cho nhân sự" />}
+                {canManageQuestions && <ActionCard icon={Upload} label="Ngân hàng câu hỏi" text="Cập nhật câu hỏi" />}
+                {canManageMaterials && <ActionCard icon={Upload} label="Tài liệu đào tạo" text="Cập nhật tài liệu học" />}
+              </>
+            )}
               </section>
             </>
-          ) : activeAdminIndex === 1 ? (
-            isFullAdmin ? (
+          ) : activeAdminItem.label === "Quản lý bài test" ? (
+            canManageAssignments ? (
               <TestManagementPage />
             ) : (
               <section className="panel">
                 <div className="section-title">
                   <h3>Không có quyền quản lý bài test</h3>
                 </div>
-                <p>Trưởng phòng chỉ được xem kết quả nhân sự thuộc phòng mình.</p>
+                <p>Tài khoản hiện tại không có quyền quản lý bài test.</p>
               </section>
             )
           ) : activeAdminItem.label === "Giao test cho nhân sự" ? (
-            isFullAdmin ? (
+            canManageAssignments ? (
               <AssignmentManagementPage />
             ) : (
               <section className="panel">
                 <div className="section-title">
                   <h3>Không có quyền giao test</h3>
                 </div>
-                <p>Trưởng phòng chỉ được xem kết quả nhân sự thuộc phòng mình.</p>
+                <p>Tài khoản hiện tại không có quyền giao test.</p>
               </section>
             )
           ) : activeAdminItem.label === "Kết quả test" ? (
@@ -779,42 +845,42 @@ export function AdminDashboard({
               }}
             />
           ) : activeAdminItem.label === "Nhân sự" ? (
-            isFullAdmin ? (
-              <PeopleAdminPage />
-            ) : (
-              <section className="panel">
-                <div className="section-title">
-                  <h3>Không có quyền quản lý nhân sự</h3>
-                </div>
-                <p>Trưởng phòng chỉ được xem kết quả nhân sự thuộc phòng mình.</p>
-              </section>
-            )
+            <PeopleAdminPage readOnly={!isFullAdmin} />
           ) : activeAdminItem.label === "Ngân hàng câu hỏi" ? (
-            isFullAdmin ? (
+            canManageQuestions ? (
               <QuestionBankPage />
             ) : (
               <section className="panel">
                 <div className="section-title">
                   <h3>Không có quyền quản lý ngân hàng câu hỏi</h3>
                 </div>
-                <p>Trưởng phòng chỉ được xem kết quả nhân sự thuộc phòng mình.</p>
+                <p>Tài khoản hiện tại không có quyền quản lý ngân hàng câu hỏi.</p>
               </section>
             )
           ) : activeAdminItem.label === "Tài liệu đào tạo" ? (
-            isFullAdmin ? (
+            canManageMaterials ? (
               <TrainingMaterialsAdminPage />
             ) : (
               <section className="panel">
                 <div className="section-title">
                   <h3>Không có quyền quản lý tài liệu đào tạo</h3>
                 </div>
-                <p>Trưởng phòng chỉ được xem kết quả nhân sự thuộc phòng mình.</p>
+                <p>Tài khoản hiện tại không có quyền quản lý tài liệu đào tạo.</p>
               </section>
             )
           ) : activeAdminItem.label === "Báo cáo" ? (
             <ReportsAdminPage user={user} />
           ) : activeAdminItem.label === "Cài đặt hệ thống" ? (
-            <SystemSettingsPage theme={theme} onThemeChange={onThemeChange} />
+            canManageSystem ? (
+              <SystemSettingsPage theme={theme} onThemeChange={onThemeChange} />
+            ) : (
+              <section className="panel">
+                <div className="section-title">
+                  <h3>Không có quyền cài đặt hệ thống</h3>
+                </div>
+                <p>Tài khoản hiện tại không có quyền cài đặt hệ thống.</p>
+              </section>
+            )
           ) : (
             <AdminSectionPage title={activeAdminItem.label} icon={activeAdminItem.icon} />
           )}

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import type { ResultSetHeader } from "mysql2";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { canManageMaterials, getCurrentUser } from "@/lib/auth";
 import { executeQuery, withTransaction } from "@/lib/db";
 
 type RouteContext = {
@@ -98,15 +98,15 @@ async function saveUploadedFile(file: File) {
   return `${PUBLIC_UPLOAD_PATH}/${filename}`;
 }
 
-async function requireAdmin(request: Request) {
+async function requireMaterialManager(request: Request) {
   const currentUser = await getCurrentUser(request);
-  return currentUser && isAdmin(currentUser) ? currentUser : null;
+  return currentUser && canManageMaterials(currentUser) ? currentUser : null;
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireMaterialManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được sửa tài liệu đào tạo." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền sửa tài liệu đào tạo." }, { status: 403 });
   }
 
   const { id } = await context.params;
@@ -185,9 +185,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireMaterialManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được tắt tài liệu đào tạo." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền tắt tài liệu đào tạo." }, { status: 403 });
   }
 
   const { id } = await context.params;

@@ -1,7 +1,18 @@
 import { createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from "crypto";
 import type { RowDataPacket } from "mysql2";
 import { queryRows } from "@/lib/db";
-import { canViewPeopleResultsUser, isAdminUser, isDepartmentManagerUser } from "@/lib/permissions";
+import {
+  canAccessAdminUser,
+  canManageAssignmentsUser,
+  canManageMaterialsUser,
+  canManageQuestionsUser,
+  canManageSystemUser,
+  canReadAdminDashboardUser,
+  canViewPeopleResultsUser,
+  hasPermissionUser,
+  isAdminUser,
+  isDepartmentManagerUser
+} from "@/lib/permissions";
 import type { SessionUser } from "@/lib/types";
 
 export const SESSION_COOKIE_NAME = "eb_session";
@@ -38,6 +49,7 @@ type AuthUserRow = RowDataPacket & {
   position_title: string | null;
   avatar_initial: string | null;
   roles: string | null;
+  permissions: string | null;
 };
 
 function base64Url(input: string | Buffer) {
@@ -132,7 +144,8 @@ function mapUser(row: AuthUserRow): SessionUser {
     department: row.department_name,
     position: row.position_title,
     avatarInitial: row.avatar_initial,
-    roles: row.roles ? row.roles.split(",") : []
+    roles: row.roles ? row.roles.split(",") : [],
+    permissions: row.permissions ? row.permissions.split(",") : []
   };
 }
 
@@ -204,11 +217,14 @@ export async function getUserByCredentials(username: string, password: string) {
       d.name AS department_name,
       e.position_title,
       e.avatar_initial,
-      GROUP_CONCAT(r.code ORDER BY r.code) AS roles
+      GROUP_CONCAT(DISTINCT r.code ORDER BY r.code) AS roles,
+      GROUP_CONCAT(DISTINCT p.code ORDER BY p.code) AS permissions
     FROM employees e
     JOIN departments d ON d.id = e.department_id
     LEFT JOIN employee_roles er ON er.employee_id = e.id
     LEFT JOIN roles r ON r.id = er.role_id
+    LEFT JOIN role_permissions rp ON rp.role_id = r.id
+    LEFT JOIN permissions p ON p.id = rp.permission_id
     WHERE e.username = ? AND e.is_active = 1
     GROUP BY e.id
     LIMIT 1
@@ -239,11 +255,14 @@ export async function getUserById(employeeId: number) {
       d.name AS department_name,
       e.position_title,
       e.avatar_initial,
-      GROUP_CONCAT(r.code ORDER BY r.code) AS roles
+      GROUP_CONCAT(DISTINCT r.code ORDER BY r.code) AS roles,
+      GROUP_CONCAT(DISTINCT p.code ORDER BY p.code) AS permissions
     FROM employees e
     JOIN departments d ON d.id = e.department_id
     LEFT JOIN employee_roles er ON er.employee_id = e.id
     LEFT JOIN roles r ON r.id = er.role_id
+    LEFT JOIN role_permissions rp ON rp.role_id = r.id
+    LEFT JOIN permissions p ON p.id = rp.permission_id
     WHERE e.id = ? AND e.is_active = 1
     GROUP BY e.id
     LIMIT 1
@@ -271,4 +290,32 @@ export function isDepartmentManager(user: SessionUser) {
 
 export function canViewPeopleResults(user: SessionUser) {
   return canViewPeopleResultsUser(user);
+}
+
+export function canReadAdminDashboard(user: SessionUser) {
+  return canReadAdminDashboardUser(user);
+}
+
+export function canManageAssignments(user: SessionUser) {
+  return canManageAssignmentsUser(user);
+}
+
+export function canManageQuestions(user: SessionUser) {
+  return canManageQuestionsUser(user);
+}
+
+export function canManageMaterials(user: SessionUser) {
+  return canManageMaterialsUser(user);
+}
+
+export function canManageSystem(user: SessionUser) {
+  return canManageSystemUser(user);
+}
+
+export function canAccessAdmin(user: SessionUser) {
+  return canAccessAdminUser(user);
+}
+
+export function hasPermission(user: SessionUser, permission: string) {
+  return hasPermissionUser(user, permission);
 }

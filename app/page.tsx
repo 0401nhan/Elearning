@@ -16,7 +16,7 @@ import { SupportPage } from "@/components/support-page";
 import { SystemSettingsPage } from "@/components/system-settings-page";
 import { TestDetail } from "@/components/test-detail";
 import { TestsPage } from "@/components/tests-page";
-import { canViewPeopleResultsUser } from "@/lib/permissions";
+import { canAccessAdminUser } from "@/lib/permissions";
 import { canStartOfficialAttempt, hasOfficialResult } from "@/lib/test-state";
 import type { AssignedTest, Screen, SessionUser, TestStatus, ThemeMode, UserAssignment, UserSummary } from "@/lib/types";
 
@@ -233,7 +233,7 @@ export default function Page() {
             setSelectedTestId(restorableTest.id);
             setScreen("official");
           } else {
-            setScreen(canViewPeopleResultsUser(data.employee) ? "admin" : "home");
+            setScreen(canAccessAdminUser(data.employee) ? "admin" : "home");
           }
         } else {
           setUser(null);
@@ -288,7 +288,7 @@ export default function Page() {
       setSelectedTestId(restorableTest.id);
       setScreen("official");
     } else {
-      setScreen(canViewPeopleResultsUser(employee) ? "admin" : "home");
+      setScreen(canAccessAdminUser(employee) ? "admin" : "home");
     }
   }
 
@@ -370,7 +370,7 @@ export default function Page() {
   }
 
   if (screen === "admin") {
-    return canViewPeopleResultsUser(user) ? (
+    return canAccessAdminUser(user) ? (
       <AdminDashboard
         setScreen={setScreen}
         user={user}

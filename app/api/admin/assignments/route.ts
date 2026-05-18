@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { canManageAssignments, getCurrentUser } from "@/lib/auth";
 import { queryRows, withTransaction } from "@/lib/db";
 
 type TestRow = RowDataPacket & {
@@ -116,15 +116,15 @@ function mapEmployee(row: EmployeeAssignmentRow) {
   };
 }
 
-async function requireAdmin(request: Request) {
+async function requireAssignmentManager(request: Request) {
   const currentUser = await getCurrentUser(request);
-  return currentUser && isAdmin(currentUser) ? currentUser : null;
+  return currentUser && canManageAssignments(currentUser) ? currentUser : null;
 }
 
 export async function GET(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireAssignmentManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được giao bài test." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền giao bài test." }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -310,9 +310,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireAssignmentManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được giao bài test hoặc gửi nhắc nhở." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền giao bài test hoặc gửi nhắc nhở." }, { status: 403 });
   }
 
   const body = await request.json().catch(() => null);

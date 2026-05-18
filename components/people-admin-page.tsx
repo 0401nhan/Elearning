@@ -186,7 +186,7 @@ function formatLoginAgo(lastLoginAt: string | null, thresholdMinutes: number) {
   return `${minutes} phút trước`;
 }
 
-export function PeopleAdminPage() {
+export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {}) {
   const [data, setData] = useState<PeopleResponse | null>(null);
   const [search, setSearch] = useState("");
   const [departmentId, setDepartmentId] = useState("");
@@ -254,6 +254,10 @@ export function PeopleAdminPage() {
   }
 
   function openCreateModal() {
+    if (readOnly) {
+      return;
+    }
+
     setForm({
       ...emptyForm,
       departmentId: data?.departments[0] ? String(data.departments[0].id) : ""
@@ -263,6 +267,10 @@ export function PeopleAdminPage() {
   }
 
   function openEditModal(employee: Employee) {
+    if (readOnly) {
+      return;
+    }
+
     setForm(toForm(employee));
     setError("");
     setIsModalOpen(true);
@@ -282,6 +290,10 @@ export function PeopleAdminPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (readOnly) {
+      return;
+    }
+
     setIsSaving(true);
     setError("");
 
@@ -313,6 +325,10 @@ export function PeopleAdminPage() {
   }
 
   async function handleDelete(employee: Employee) {
+    if (readOnly) {
+      return;
+    }
+
     const ok = window.confirm(`Xóa nhân sự ${employee.fullName}? Tài khoản sẽ bị khóa và không đăng nhập được.`);
     if (!ok) {
       return;
@@ -334,11 +350,17 @@ export function PeopleAdminPage() {
       <section className="page-header">
         <div>
           <h2>Nhân sự</h2>
-          <p>Quản lý tài khoản, phòng ban, khu vực, chức vụ và phân quyền người dùng.</p>
+          <p>
+            {readOnly
+              ? "Xem danh sách nhân sự trong phòng ban của bạn. Chế độ này không cho phép thêm, sửa hoặc khóa tài khoản."
+              : "Quản lý tài khoản, phòng ban, khu vực, chức vụ và phân quyền người dùng."}
+          </p>
         </div>
-        <button className="primary-button" onClick={openCreateModal}>
-          <Plus size={18} /> Thêm nhân sự
-        </button>
+        {!readOnly && (
+          <button className="primary-button" onClick={openCreateModal}>
+            <Plus size={18} /> Thêm nhân sự
+          </button>
+        )}
       </section>
 
       <section className="people-summary">
@@ -380,12 +402,13 @@ export function PeopleAdminPage() {
         </label>
         <select
           value={departmentId}
+          disabled={readOnly}
           onChange={(event) => {
             setDepartmentId(event.target.value);
             setPage(1);
           }}
         >
-          <option value="">Tất cả phòng ban</option>
+          <option value="">{readOnly ? data?.departments[0]?.name ?? "Phòng ban của bạn" : "Tất cả phòng ban"}</option>
           {data?.departments.map((department) => (
             <option key={department.id} value={department.id}>
               {department.name}
@@ -444,7 +467,7 @@ export function PeopleAdminPage() {
                 <th>Vai trò</th>
                 <th>Trạng thái</th>
                 <th>Đăng nhập cuối</th>
-                <th>Thao tác</th>
+                {!readOnly && <th>Thao tác</th>}
               </tr>
             </thead>
             <tbody>
@@ -482,22 +505,24 @@ export function PeopleAdminPage() {
                       </span>
                     </td>
                     <td>{employee.lastLoginAt ? formatDate(employee.lastLoginAt) : "--"}</td>
-                    <td>
-                      <span className="table-actions">
-                        <button className="table-icon" onClick={() => openEditModal(employee)} aria-label="Sửa nhân sự">
-                          <Edit3 size={16} />
-                        </button>
-                        <button className="table-icon danger" onClick={() => handleDelete(employee)} aria-label="Xóa nhân sự">
-                          <Trash2 size={16} />
-                        </button>
-                      </span>
-                    </td>
+                    {!readOnly && (
+                      <td>
+                        <span className="table-actions">
+                          <button className="table-icon" onClick={() => openEditModal(employee)} aria-label="Sửa nhân sự">
+                            <Edit3 size={16} />
+                          </button>
+                          <button className="table-icon danger" onClick={() => handleDelete(employee)} aria-label="Xóa nhân sự">
+                            <Trash2 size={16} />
+                          </button>
+                        </span>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
               {data?.employees.length === 0 && (
                 <tr>
-                  <td colSpan={10}>Không có nhân sự phù hợp với bộ lọc.</td>
+                  <td colSpan={readOnly ? 9 : 10}>Không có nhân sự phù hợp với bộ lọc.</td>
                 </tr>
               )}
             </tbody>

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { canManageMaterials, getCurrentUser } from "@/lib/auth";
 import { queryRows, withTransaction } from "@/lib/db";
 
 type MaterialRow = RowDataPacket & {
@@ -158,15 +158,15 @@ function mapMaterial(row: MaterialRow) {
   };
 }
 
-async function requireAdmin(request: Request) {
+async function requireMaterialManager(request: Request) {
   const currentUser = await getCurrentUser(request);
-  return currentUser && isAdmin(currentUser) ? currentUser : null;
+  return currentUser && canManageMaterials(currentUser) ? currentUser : null;
 }
 
 export async function GET(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireMaterialManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được quản lý tài liệu đào tạo." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền quản lý tài liệu đào tạo." }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -297,9 +297,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireMaterialManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được upload tài liệu đào tạo." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền upload tài liệu đào tạo." }, { status: 403 });
   }
 
   const formData = await request.formData();

@@ -101,7 +101,7 @@ export async function GET(request: Request) {
       WHERE status = 'approved'
       GROUP BY assignment_id
     ) retake ON retake.assignment_id = ta.id
-    WHERE t.id = ?
+    WHERE t.id = ? AND t.status = 'active'
     LIMIT 1
     `,
     [employee.id, testId]
@@ -109,12 +109,18 @@ export async function GET(request: Request) {
 
   const test = tests[0];
   if (!test) {
-    return NextResponse.json({ error: "Không tìm thấy bài test." }, { status: 404 });
+    return NextResponse.json({ error: "Không tìm thấy bài test hoặc bài test đã được lưu trữ." }, { status: 404 });
   }
 
   if (!isAdmin(employee)) {
     const assignments = await queryRows<(RowDataPacket & { id: number })[]>(
-      "SELECT id FROM test_assignments WHERE employee_id = ? AND test_id = ? LIMIT 1",
+      `
+      SELECT ta.id
+      FROM test_assignments ta
+      JOIN tests t ON t.id = ta.test_id
+      WHERE ta.employee_id = ? AND ta.test_id = ? AND t.status = 'active'
+      LIMIT 1
+      `,
       [employee.id, testId]
     );
 

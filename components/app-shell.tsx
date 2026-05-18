@@ -1,7 +1,7 @@
 import { Bell, GraduationCap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { navItems } from "@/lib/mock-data";
-import { canViewPeopleResultsUser } from "@/lib/permissions";
+import { canAccessAdminUser } from "@/lib/permissions";
 import type { Screen, SessionUser } from "@/lib/types";
 import { BrandMark } from "./shared";
 import { UserActions } from "./user-actions";
@@ -19,7 +19,7 @@ export function AppShell({
   onLogout: () => void;
   children: React.ReactNode;
 }) {
-  const visibleNavItems = navItems.filter((item) => item.screen !== "admin" || canViewPeopleResultsUser(user));
+  const visibleNavItems = navItems.filter((item) => item.screen !== "admin" || canAccessAdminUser(user));
   const [unreadCount, setUnreadCount] = useState(0);
 
   async function loadUnreadCount() {

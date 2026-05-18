@@ -77,7 +77,7 @@ export async function GET(request: Request) {
     JOIN tests t ON t.id = ta.test_id
     LEFT JOIN departments d ON d.id = m.department_id
     LEFT JOIN material_progress mp ON mp.material_id = m.id AND mp.employee_id = ?
-    WHERE ta.employee_id = ? AND ${filters.join(" AND ")}
+    WHERE ta.employee_id = ? AND t.status = 'active' AND ${filters.join(" AND ")}
     GROUP BY
       m.id,
       m.title,
@@ -130,7 +130,8 @@ export async function POST(request: Request) {
     FROM test_materials tm
     JOIN test_assignments ta ON ta.test_id = tm.test_id
     JOIN training_materials m ON m.id = tm.material_id
-    WHERE ta.employee_id = ? AND tm.material_id = ? AND m.is_active = 1
+    JOIN tests t ON t.id = ta.test_id
+    WHERE ta.employee_id = ? AND tm.material_id = ? AND m.is_active = 1 AND t.status = 'active'
     `,
     [employee.id, materialId]
   );

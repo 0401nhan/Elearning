@@ -67,7 +67,7 @@ export async function GET(request: Request) {
       FROM retake_requests
       GROUP BY assignment_id
     ) retake_requests ON retake_requests.assignment_id = ta.id
-    WHERE ta.employee_id = ?
+    WHERE ta.employee_id = ? AND t.status = 'active'
     ORDER BY ta.id
     `,
     [employee.id]

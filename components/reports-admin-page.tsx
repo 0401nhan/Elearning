@@ -9,6 +9,7 @@ import {
   Search
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { isAdminUser } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/types";
 
 type ReportType = "results" | "department_summary" | "test_summary" | "wrong_questions";
@@ -119,7 +120,7 @@ export function ReportsAdminPage({ user }: { user: SessionUser }) {
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const isFullAdmin = user.roles.includes("admin");
+  const isFullAdmin = isAdminUser(user);
 
   const selectedReport = useMemo(
     () => reportTypes.find((item) => item.value === reportType) ?? reportTypes[0],

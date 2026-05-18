@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { canManageQuestions, getCurrentUser } from "@/lib/auth";
 import { executeQuery, withTransaction } from "@/lib/db";
 
 type RouteContext = {
@@ -68,15 +68,15 @@ function validateOptions(options: ParsedOption[]) {
   return null;
 }
 
-async function requireAdmin(request: Request) {
+async function requireQuestionManager(request: Request) {
   const currentUser = await getCurrentUser(request);
-  return currentUser && isAdmin(currentUser) ? currentUser : null;
+  return currentUser && canManageQuestions(currentUser) ? currentUser : null;
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireQuestionManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được sửa câu hỏi." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền sửa câu hỏi." }, { status: 403 });
   }
 
   const { id } = await context.params;
@@ -161,9 +161,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
-  const currentUser = await requireAdmin(request);
+  const currentUser = await requireQuestionManager(request);
   if (!currentUser) {
-    return NextResponse.json({ error: "Chỉ admin được tắt câu hỏi." }, { status: 403 });
+    return NextResponse.json({ error: "Không có quyền tắt câu hỏi." }, { status: 403 });
   }
 
   const { id } = await context.params;

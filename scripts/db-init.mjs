@@ -581,9 +581,14 @@ async function seedDemoData(connection) {
     SELECT
       q.id AS question_id,
       q.test_id,
+      q.question_text,
+      q.explanation,
+      q.difficulty,
+      qg.name AS group_name,
       correct.id AS correct_option_id,
       wrong.id AS wrong_option_id
     FROM questions q
+    LEFT JOIN question_groups qg ON qg.id = q.group_id
     JOIN answer_options correct ON correct.question_id = q.id AND correct.is_correct = 1
     LEFT JOIN answer_options wrong
       ON wrong.id = (
@@ -599,7 +604,10 @@ async function seedDemoData(connection) {
     `
     SELECT
       ao.id AS option_id,
-      ao.question_id
+      ao.question_id,
+      ao.option_label,
+      ao.option_text,
+      ao.is_correct
     FROM answer_options ao
     JOIN questions q ON q.id = ao.question_id
     WHERE q.is_active = 1
@@ -629,24 +637,50 @@ async function seedDemoData(connection) {
     testQuestions.forEach((question, index) => {
       const isCorrect = index < correctTarget;
       const selectedOptionId = isCorrect ? question.correct_option_id : (question.wrong_option_id ?? question.correct_option_id);
-      attemptQuestionRows.push([attempt.id, question.question_id, index + 1]);
+      attemptQuestionRows.push([
+        attempt.id,
+        question.question_id,
+        index + 1,
+        question.question_text,
+        question.explanation,
+        question.difficulty,
+        question.group_name
+      ]);
       (optionsByQuestion.get(question.question_id) ?? []).forEach((option, optionIndex) => {
-        attemptQuestionOptionRows.push([attempt.id, question.question_id, option.option_id, optionIndex + 1]);
+        attemptQuestionOptionRows.push([
+          attempt.id,
+          question.question_id,
+          option.option_id,
+          optionIndex + 1,
+          option.option_label,
+          option.option_text,
+          option.is_correct ? 1 : 0
+        ]);
       });
       attemptAnswerRows.push([attempt.id, question.question_id, selectedOptionId, isCorrect ? 1 : 0]);
     });
   }
 
   if (attemptQuestionRows.length > 0) {
-    await connection.query("INSERT IGNORE INTO attempt_questions (attempt_id, question_id, question_order) VALUES ?", [
-      attemptQuestionRows
-    ]);
+    await connection.query(
+      `
+      INSERT IGNORE INTO attempt_questions
+        (attempt_id, question_id, question_order, question_text_snapshot, explanation_snapshot, difficulty_snapshot, group_name_snapshot)
+      VALUES ?
+      `,
+      [attemptQuestionRows]
+    );
   }
 
   if (attemptQuestionOptionRows.length > 0) {
-    await connection.query("INSERT IGNORE INTO attempt_question_options (attempt_id, question_id, option_id, option_order) VALUES ?", [
-      attemptQuestionOptionRows
-    ]);
+    await connection.query(
+      `
+      INSERT IGNORE INTO attempt_question_options
+        (attempt_id, question_id, option_id, option_order, option_label_snapshot, option_text_snapshot, is_correct_snapshot)
+      VALUES ?
+      `,
+      [attemptQuestionOptionRows]
+    );
   }
 
   if (attemptAnswerRows.length > 0) {
