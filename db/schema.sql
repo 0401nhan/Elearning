@@ -348,6 +348,7 @@ CREATE TABLE IF NOT EXISTS retake_requests (
   reviewed_at DATETIME NULL,
   review_note TEXT NULL,
   PRIMARY KEY (id),
+  KEY idx_retake_assignment (assignment_id),
   KEY idx_retake_status (status),
   CONSTRAINT fk_retake_assignment
     FOREIGN KEY (assignment_id) REFERENCES test_assignments(id)

@@ -25,6 +25,9 @@ type TestRow = RowDataPacket & {
   code: string;
   title: string;
   status: string;
+  question_count: number;
+  active_question_count: number | null;
+  inactive_question_count: number | null;
 };
 
 type GroupRow = RowDataPacket & {
@@ -243,7 +246,22 @@ export async function GET(request: Request) {
       `,
       values
     ),
-    queryRows<TestRow[]>("SELECT id, code, title, status FROM tests ORDER BY FIELD(status, 'active', 'draft', 'archived'), title"),
+    queryRows<TestRow[]>(
+      `
+      SELECT
+        t.id,
+        t.code,
+        t.title,
+        t.status,
+        COUNT(q.id) AS question_count,
+        SUM(q.is_active = 1) AS active_question_count,
+        SUM(q.is_active = 0) AS inactive_question_count
+      FROM tests t
+      LEFT JOIN questions q ON q.test_id = t.id
+      GROUP BY t.id, t.code, t.title, t.status
+      ORDER BY FIELD(t.status, 'active', 'draft', 'archived'), t.title
+      `
+    ),
     queryRows<GroupRow[]>(
       `
       SELECT id, test_id, name, suggested_question_count, sort_order
@@ -306,7 +324,15 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     questions: mapQuestions(rows),
-    tests,
+    tests: tests.map((test) => ({
+      id: test.id,
+      code: test.code,
+      title: test.title,
+      status: test.status,
+      questionCount: Number(test.question_count ?? 0),
+      activeQuestionCount: Number(test.active_question_count ?? 0),
+      inactiveQuestionCount: Number(test.inactive_question_count ?? 0)
+    })),
     groups: groups.map((group) => ({
       id: group.id,
       testId: group.test_id,

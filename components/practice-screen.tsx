@@ -8,9 +8,11 @@ import {
   Pencil,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Trophy,
   X
 } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { isOfficialLocked, isOfficialPassed, officialResultLabel, officialResultTone } from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
@@ -53,6 +55,12 @@ type AttemptResult = {
   resultStatus: string;
 };
 
+type AnswerPulse = {
+  questionId: number;
+  answerId: number;
+  tone: "correct" | "wrong" | "selected";
+};
+
 function getSelectedOption(question: PracticeQuestion | undefined, selectedOptionId: number | undefined) {
   return question?.answers.find((answer) => answer.id === selectedOptionId);
 }
@@ -78,6 +86,8 @@ export function PracticeScreen({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [startedAt, setStartedAt] = useState(() => Date.now());
+  const [answerPulse, setAnswerPulse] = useState<AnswerPulse | null>(null);
+  const [correctStreak, setCorrectStreak] = useState(0);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -100,6 +110,9 @@ export function PracticeScreen({
   const officialDone = isOfficialLocked(test);
   const officialPassed = isOfficialPassed(test);
   const officialTone = officialResultTone(test);
+  const ringValue = result ? Math.round(result.score) : completionPercent;
+  const ringStyle = { "--ring-progress": `${Math.max(0, Math.min(100, ringValue))}%` } as CSSProperties;
+  const streakLabel = correctStreak >= 2 ? `${correctStreak} câu đúng liên tiếp` : "Đang luyện tập";
 
   async function loadPractice() {
     setIsLoading(true);
@@ -120,6 +133,8 @@ export function PracticeScreen({
       setCurrentIndex(0);
       setResult(null);
       setStartedAt(Date.now());
+      setAnswerPulse(null);
+      setCorrectStreak(0);
     } catch {
       setError("Không thể kết nối hệ thống.");
     } finally {
@@ -176,6 +191,8 @@ export function PracticeScreen({
     setCurrentIndex(0);
     setResult(null);
     setStartedAt(Date.now());
+    setAnswerPulse(null);
+    setCorrectStreak(0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -186,6 +203,21 @@ export function PracticeScreen({
 
     setAnswers((current) => ({ ...current, [questionId]: answerId }));
     setCheckedQuestions((current) => ({ ...current, [questionId]: true }));
+
+    const question = questions.find((item) => item.id === questionId);
+    const selectedAnswer = question?.answers.find((answer) => answer.id === answerId);
+    const pulseTone = revealPracticeAnswers ? (selectedAnswer?.is_correct ? "correct" : "wrong") : "selected";
+    setAnswerPulse({ questionId, answerId, tone: pulseTone });
+
+    if (revealPracticeAnswers) {
+      setCorrectStreak((current) => (selectedAnswer?.is_correct ? current + 1 : 0));
+    }
+
+    window.setTimeout(() => {
+      setAnswerPulse((current) =>
+        current?.questionId === questionId && current.answerId === answerId ? null : current
+      );
+    }, 780);
   }
 
   function goToQuestion(index: number) {
@@ -200,6 +232,10 @@ export function PracticeScreen({
 
     if (selected) {
       classes.push("selected");
+    }
+
+    if (answerPulse?.questionId === question.id && answerPulse.answerId === answer.id) {
+      classes.push(`answer-pop-${answerPulse.tone}`);
     }
 
     if (revealPracticeAnswers && checked && answer.is_correct) {
@@ -250,6 +286,10 @@ export function PracticeScreen({
               ? "Chọn đáp án cho từng câu, hệ thống sẽ hiện ngay đúng/sai và giải thích trước khi chuyển câu tiếp theo."
               : "Chọn đáp án cho từng câu và hoàn thành bài thử để xem điểm tổng kết."}
           </p>
+          <span className={`quiz-live-badge ${correctStreak >= 3 ? "hot" : ""}`}>
+            <Sparkles size={15} />
+            {streakLabel}
+          </span>
         </div>
         <div className="practice-hero-kpis">
           <span>
@@ -273,7 +313,7 @@ export function PracticeScreen({
         <div className="practice-main-panel">
           {result ? (
             <>
-              <div className="score-box practice-result-box">
+              <div className={`score-box practice-result-box ${scorePass ? "is-pass" : "is-review"}`}>
                 <Trophy size={64} />
                 <div>
                   <span>Điểm làm thử</span>
@@ -298,7 +338,11 @@ export function PracticeScreen({
                   const ok = revealPracticeAnswers && Boolean(selectedOption?.is_correct);
 
                   return (
-                    <article key={question.id} id={`practice-question-${question.id}`}>
+                    <article
+                      key={question.id}
+                      id={`practice-question-${question.id}`}
+                      style={{ "--review-index": index } as CSSProperties}
+                    >
                       {revealPracticeAnswers ? ok ? <CheckCircle2 size={22} /> : <X size={22} /> : <HelpCircle size={22} />}
                       <div>
                         <strong>
@@ -339,7 +383,11 @@ export function PracticeScreen({
               {isLoading && <p>Đang tải câu hỏi...</p>}
 
               {activeQuestion && (
-                <div className="practice-question-item practice-single-question" id={`practice-question-${activeQuestion.id}`}>
+                <div
+                  key={activeQuestion.id}
+                  className="practice-question-item practice-single-question question-card-enter"
+                  id={`practice-question-${activeQuestion.id}`}
+                >
                   <div className="question-heading">
                     <span>Câu {currentIndex + 1}</span>
                     {activeQuestion.group_name && <small>{activeQuestion.group_name}</small>}
@@ -420,7 +468,7 @@ export function PracticeScreen({
                   : "Chọn đáp án cho đủ các câu để hoàn thành bài thử."}
             </p>
           </div>
-          <div className="side-progress-ring">
+          <div className={`side-progress-ring ${result ? "score-ring" : ""}`} style={ringStyle}>
             <strong>{result ? Math.round(result.score) : completionPercent}</strong>
             <span>{result ? "điểm" : "% hoàn thành"}</span>
           </div>

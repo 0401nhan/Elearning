@@ -19,6 +19,8 @@ type AssignmentRow = RowDataPacket & {
   official_attempts_used: number;
   max_official_attempts: number;
   official_score: string | number | null;
+  retake_request_count: number;
+  retake_request_status: "pending" | "approved" | "rejected" | null;
 };
 
 export async function GET(request: Request) {
@@ -45,7 +47,9 @@ export async function GET(request: Request) {
       ta.practice_attempt_count,
       ta.official_attempts_used,
       (t.max_official_attempts + COALESCE(retake.approved_retake_count, 0)) AS max_official_attempts,
-      ta.official_score
+      ta.official_score,
+      COALESCE(retake_requests.retake_request_count, 0) AS retake_request_count,
+      retake_requests.retake_request_status
     FROM test_assignments ta
     JOIN tests t ON t.id = ta.test_id
     LEFT JOIN departments d ON d.id = t.department_id
@@ -55,6 +59,14 @@ export async function GET(request: Request) {
       WHERE status = 'approved'
       GROUP BY assignment_id
     ) retake ON retake.assignment_id = ta.id
+    LEFT JOIN (
+      SELECT
+        assignment_id,
+        COUNT(*) AS retake_request_count,
+        SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY requested_at DESC, id DESC), ',', 1) AS retake_request_status
+      FROM retake_requests
+      GROUP BY assignment_id
+    ) retake_requests ON retake_requests.assignment_id = ta.id
     WHERE ta.employee_id = ?
     ORDER BY ta.id
     `,
@@ -80,7 +92,9 @@ export async function GET(request: Request) {
       ...item,
       pass_score: toNumber(item.pass_score),
       read_progress_percent: toNumber(item.read_progress_percent),
-      official_score: toNumber(item.official_score)
+      official_score: toNumber(item.official_score),
+      retake_request_count: toNumber(item.retake_request_count) ?? 0,
+      retake_request_status: item.retake_request_status
     }))
   });
 }

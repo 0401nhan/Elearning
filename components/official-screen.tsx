@@ -7,6 +7,7 @@ import {
   Home,
   ListChecks,
   RefreshCw,
+  Save,
   ShieldCheck,
   X
 } from "lucide-react";
@@ -61,6 +62,8 @@ type AttemptResult = {
   resultStatus: string;
 };
 
+type DraftSaveState = "idle" | "saving" | "saved" | "error";
+
 function formatRemaining(totalSeconds: number) {
   const minutes = Math.floor(Math.max(0, totalSeconds) / 60);
   const seconds = Math.max(0, totalSeconds) % 60;
@@ -68,12 +71,32 @@ function formatRemaining(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function hasPendingRetakeRequest(test: AssignedTest) {
+  return test.retakeRequestStatus === "pending";
+}
+
+function retakeButtonLabel(test: AssignedTest, isRequesting: boolean, hasPendingRequest: boolean) {
+  if (isRequesting) {
+    return "Đang gửi";
+  }
+
+  if (hasPendingRequest) {
+    return "Đã gửi yêu cầu";
+  }
+
+  return "Gửi yêu cầu thi lại";
+}
+
 export function OfficialScreen({
   test,
+  onAttemptStarted,
+  onAttemptFinished,
   onHome,
   onRefreshAssignments
 }: {
   test: AssignedTest;
+  onAttemptStarted?: (testId: number) => void;
+  onAttemptFinished?: () => void;
   onHome: () => void;
   onRefreshAssignments: () => Promise<unknown>;
 }) {
@@ -88,6 +111,10 @@ export function OfficialScreen({
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRequestingRetake, setIsRequestingRetake] = useState(false);
+  const [hasSubmittedRetakeRequest, setHasSubmittedRetakeRequest] = useState(false);
+  const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
+  const [lastSavedAt, setLastSavedAt] = useState("");
+  const [answerPulse, setAnswerPulse] = useState<{ questionId: number; answerId: number } | null>(null);
   const autoSubmitRef = useRef(false);
   const deadlineAtRef = useRef<number | null>(null);
 
@@ -98,6 +125,15 @@ export function OfficialScreen({
   const progressPercent = questions.length ? Math.round((answeredCount / questions.length) * 100) : 0;
   const durationSeconds = (detail?.test.duration_minutes ?? test.minutes) * 60;
   const timePercent = durationSeconds ? Math.round((remainingSeconds / durationSeconds) * 100) : 0;
+  const timeAlertLevel = remainingSeconds <= 60 ? "critical" : remainingSeconds <= 120 ? "warning" : "steady";
+  const draftSaveLabel =
+    draftSaveState === "saving"
+      ? "Đang tự lưu"
+      : draftSaveState === "saved"
+        ? `Đã lưu ${lastSavedAt}`
+        : draftSaveState === "error"
+          ? "Lưu nháp lỗi"
+          : "Sẵn sàng tự lưu";
   const officialState = detail
     ? {
         status: detail.test.assignment_status,
@@ -111,6 +147,7 @@ export function OfficialScreen({
   const officialDone = isOfficialLocked(officialState);
   const officialPassed = isOfficialPassed(officialState);
   const noOfficialAttempts = Boolean(detail && !canStartOfficial && !result && !officialDone);
+  const pendingRetakeRequestExists = hasSubmittedRetakeRequest || hasPendingRetakeRequest(test);
   const attemptLimitLabel = detail
     ? `${detail.test.official_attempts_used}/${detail.test.max_official_attempts} lượt`
     : `${test.officialAttemptsUsed ?? 0}/${test.maxOfficialAttempts ?? 1} lượt`;
@@ -133,12 +170,16 @@ export function OfficialScreen({
       const responseData = await response.json().catch(() => null);
 
       if (!response.ok) {
+        if (response.status === 409) {
+          onAttemptFinished?.();
+        }
         setError(responseData?.error ?? "Không thể tải bài chính thức.");
         return;
       }
 
       autoSubmitRef.current = false;
       setDetail(responseData);
+      onAttemptStarted?.(Number(responseData?.test?.id ?? test.id));
       setAnswers(
         Object.fromEntries(
           (responseData?.savedAnswers ?? [])
@@ -148,6 +189,9 @@ export function OfficialScreen({
       );
       setCurrentIndex(0);
       setResult(null);
+      setDraftSaveState("idle");
+      setLastSavedAt("");
+      setAnswerPulse(null);
       const remaining = responseData?.attempt?.remainingSeconds ?? (responseData?.test?.duration_minutes ?? test.minutes) * 60;
       deadlineAtRef.current = Date.now() + remaining * 1000;
       setRemainingSeconds(remaining);
@@ -192,6 +236,7 @@ export function OfficialScreen({
       }
 
       setResult(responseData);
+      onAttemptFinished?.();
       await onRefreshAssignments();
     },
     [
@@ -200,6 +245,7 @@ export function OfficialScreen({
       durationSeconds,
       isSubmitting,
       noOfficialAttempts,
+      onAttemptFinished,
       onRefreshAssignments,
       questions,
       remainingSeconds,
@@ -208,9 +254,16 @@ export function OfficialScreen({
   );
 
   useEffect(() => {
+    setHasSubmittedRetakeRequest(false);
     loadOfficial();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [test.id]);
+
+  useEffect(() => {
+    if (officialDone || noOfficialAttempts) {
+      onAttemptFinished?.();
+    }
+  }, [noOfficialAttempts, officialDone, onAttemptFinished]);
 
   useEffect(() => {
     if (!detail || result || noOfficialAttempts || questions.length === 0) {
@@ -252,13 +305,21 @@ export function OfficialScreen({
     void submitOfficial();
   }
 
-  function selectOfficialAnswer(questionId: number, answerId: number) {
+  const selectOfficialAnswer = useCallback((questionId: number, answerId: number) => {
     setAnswers((current) => ({ ...current, [questionId]: answerId }));
+    setAnswerPulse({ questionId, answerId });
+
+    window.setTimeout(() => {
+      setAnswerPulse((current) =>
+        current?.questionId === questionId && current.answerId === answerId ? null : current
+      );
+    }, 620);
 
     if (!detail?.attempt.id) {
       return;
     }
 
+    setDraftSaveState("saving");
     fetch("/api/attempts/draft", {
       method: "POST",
       headers: {
@@ -273,13 +334,70 @@ export function OfficialScreen({
       .then(async (response) => {
         if (!response.ok) {
           const responseData = await response.json().catch(() => null);
+          setDraftSaveState("error");
           setError(responseData?.error ?? "Không thể lưu nháp đáp án.");
+          return;
         }
+
+        setDraftSaveState("saved");
+        setLastSavedAt(
+          new Intl.DateTimeFormat("vi-VN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+          }).format(new Date())
+        );
       })
-      .catch(() => setError("Không thể lưu nháp đáp án."));
-  }
+      .catch(() => {
+        setDraftSaveState("error");
+        setError("Không thể lưu nháp đáp án.");
+      });
+  }, [detail?.attempt.id]);
+
+  useEffect(() => {
+    if (!activeQuestion || result || noOfficialAttempts || isSubmitting) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName;
+
+      if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT" || tagName === "BUTTON") {
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setCurrentIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setCurrentIndex((current) => Math.min(questions.length - 1, current + 1));
+        return;
+      }
+
+      const optionIndex = Number(event.key) - 1;
+      const option = Number.isInteger(optionIndex) ? activeQuestion.answers[optionIndex] : null;
+      if (option) {
+        event.preventDefault();
+        selectOfficialAnswer(activeQuestion.id, option.id);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeQuestion, isSubmitting, noOfficialAttempts, questions.length, result, selectOfficialAnswer]);
 
   async function requestRetake() {
+    if (pendingRetakeRequestExists) {
+      setRetakeMessage("Yêu cầu thi lại của bài này đã được gửi và đang chờ duyệt.");
+      setRetakeError("");
+      return;
+    }
+
     setRetakeMessage("");
     setRetakeError("");
     setIsRequestingRetake(true);
@@ -302,6 +420,7 @@ export function OfficialScreen({
       return;
     }
 
+    setHasSubmittedRetakeRequest(true);
     setRetakeMessage(responseData?.message ?? "Yêu cầu thi lại đã được gửi và đang chờ duyệt.");
     await onRefreshAssignments();
   }
@@ -336,8 +455,8 @@ export function OfficialScreen({
           )}
           <div>
             {!passed && (
-              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake}>
-                <RefreshCw size={17} /> {isRequestingRetake ? "Đang gửi" : "Gửi yêu cầu thi lại"}
+              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake || pendingRetakeRequestExists}>
+                <RefreshCw size={17} /> {retakeButtonLabel(test, isRequestingRetake, pendingRetakeRequestExists)}
               </button>
             )}
             <button className="primary-button" onClick={onHome}>
@@ -373,8 +492,8 @@ export function OfficialScreen({
           )}
           <div>
             {!officialPassed && (
-              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake}>
-                <RefreshCw size={17} /> {isRequestingRetake ? "Đang gửi" : "Gửi yêu cầu thi lại"}
+              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake || pendingRetakeRequestExists}>
+                <RefreshCw size={17} /> {retakeButtonLabel(test, isRequestingRetake, pendingRetakeRequestExists)}
               </button>
             )}
             <button className="primary-button" onClick={onHome}>
@@ -396,7 +515,7 @@ export function OfficialScreen({
               <h2>{detail?.test.title ?? test.title}</h2>
               <p>Điểm của lượt này sẽ được ghi vào kết quả bài test.</p>
             </div>
-            <div className={`timer ${remainingSeconds <= 120 ? "urgent" : ""}`}>
+            <div className={`timer ${remainingSeconds <= 120 ? "urgent" : ""} ${timeAlertLevel}`}>
               <Clock3 size={26} />
               <span>{formatRemaining(remainingSeconds)}</span>
             </div>
@@ -411,6 +530,9 @@ export function OfficialScreen({
             </span>
             <span>
               <ShieldCheck size={16} /> Lượt chính thức: {attemptLimitLabel}
+            </span>
+            <span className={`draft-save-status ${draftSaveState}`}>
+              <Save size={16} /> {draftSaveLabel}
             </span>
           </div>
 
@@ -439,12 +561,19 @@ export function OfficialScreen({
                 <span>{progressPercent}%</span>
               </div>
 
-              <div className="question-box official-question-box">
+              <div key={activeQuestion.id} className="question-box official-question-box question-card-enter">
                 <h3>
                   Câu {currentIndex + 1}. {activeQuestion.question_text}
                 </h3>
                 {activeQuestion.answers.map((answer) => (
-                  <label key={answer.id} className={answers[activeQuestion.id] === answer.id ? "selected" : ""}>
+                  <label
+                    key={answer.id}
+                    className={`${answers[activeQuestion.id] === answer.id ? "selected" : ""} ${
+                      answerPulse?.questionId === activeQuestion.id && answerPulse.answerId === answer.id
+                        ? "official-answer-pop"
+                        : ""
+                    }`}
+                  >
                     <input
                       type="radio"
                       name={`official-${activeQuestion.id}`}
@@ -521,7 +650,7 @@ export function OfficialScreen({
             {unansweredCount > 0 && <p>Có thể nộp khi còn câu trống, hệ thống sẽ tính các câu đó là sai.</p>}
           </section>
 
-          <section className="official-sidebar-card official-time-card">
+          <section className={`official-sidebar-card official-time-card ${timeAlertLevel}`}>
             <div>
               <Clock3 size={18} />
               <strong>Thời gian còn lại</strong>

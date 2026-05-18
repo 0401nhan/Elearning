@@ -1,19 +1,62 @@
-import { BookOpen, CheckCircle2, ClipboardCheck, Eye, Pencil, ShieldCheck, X } from "lucide-react";
+import { BookOpen, CheckCircle2, ClipboardCheck, Eye, Pencil, RefreshCw, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 import { isOfficialLocked, isOfficialPassed, officialResultLabel, officialResultTone } from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
 import { StatusPill } from "./shared";
+
+function hasPendingRetakeRequest(test: AssignedTest) {
+  return test.retakeRequestStatus === "pending";
+}
+
+function retakeButtonLabel(test: AssignedTest, isRequesting: boolean) {
+  if (isRequesting) {
+    return "Đang gửi";
+  }
+
+  if (test.retakeRequestStatus === "pending") {
+    return "Đã gửi yêu cầu";
+  }
+
+  return "Gửi yêu cầu thi lại";
+}
 
 export function TestsPage({
   tests,
   onOpenTest,
   onPractice,
-  onOfficial
+  onOfficial,
+  onRequestRetake
 }: {
   tests: AssignedTest[];
   onOpenTest: (testId: number) => void;
   onPractice: (testId: number) => void;
   onOfficial: (testId: number) => void;
+  onRequestRetake: (test: AssignedTest) => Promise<string>;
 }) {
+  const [retakeActionTestId, setRetakeActionTestId] = useState<number | null>(null);
+  const [retakeError, setRetakeError] = useState("");
+  const [retakeSuccess, setRetakeSuccess] = useState("");
+
+  async function requestRetake(test: AssignedTest) {
+    if (hasPendingRetakeRequest(test)) {
+      setRetakeSuccess("Yêu cầu thi lại của bài này đã được gửi và đang chờ duyệt.");
+      return;
+    }
+
+    setRetakeActionTestId(test.id);
+    setRetakeError("");
+    setRetakeSuccess("");
+
+    try {
+      const message = await onRequestRetake(test);
+      setRetakeSuccess(message);
+    } catch (error) {
+      setRetakeError(error instanceof Error ? error.message : "Không thể gửi yêu cầu thi lại.");
+    } finally {
+      setRetakeActionTestId(null);
+    }
+  }
+
   return (
     <>
       <section className="page-header">
@@ -26,13 +69,18 @@ export function TestsPage({
         </button>
       </section>
 
+      {retakeError && <p className="login-error">{retakeError}</p>}
+      {retakeSuccess && <p className="success-message">{retakeSuccess}</p>}
+
       <section className="test-board">
         {tests.map((test) => {
           const Icon = test.icon;
           const officialDone = isOfficialLocked(test);
           const officialPassed = isOfficialPassed(test);
           const officialTone = officialResultTone(test);
-          const officialButtonClass = officialDone ? `official-result-button ${officialTone}` : "primary-button";
+          const officialButtonClass = officialDone && officialPassed ? `official-result-button ${officialTone}` : "primary-button";
+          const isRequestingRetake = retakeActionTestId === test.id;
+          const pendingRetakeRequestExists = hasPendingRetakeRequest(test);
 
           return (
             <article className={`test-board-card ${officialDone ? `official-${officialTone}` : ""}`} key={test.id}>
@@ -72,14 +120,24 @@ export function TestsPage({
                 <button className="warm-button" onClick={() => onPractice(test.id)}>
                   <Pencil size={16} /> Làm thử
                 </button>
-                <button
-                  className={officialButtonClass}
-                  onClick={() => onOfficial(test.id)}
-                  disabled={officialDone || test.status === "CHƯA LÀM"}
-                >
-                  {officialDone ? officialPassed ? <CheckCircle2 size={16} /> : <X size={16} /> : <ShieldCheck size={16} />}
-                  {officialDone ? officialResultLabel(test) : "Chính thức"}
-                </button>
+                {officialDone && !officialPassed ? (
+                  <button
+                    className="danger-outline-button"
+                    onClick={() => requestRetake(test)}
+                    disabled={isRequestingRetake || pendingRetakeRequestExists}
+                  >
+                    <RefreshCw size={16} /> {retakeButtonLabel(test, isRequestingRetake)}
+                  </button>
+                ) : (
+                  <button
+                    className={officialButtonClass}
+                    onClick={() => onOfficial(test.id)}
+                    disabled={officialDone || test.status === "CHƯA LÀM"}
+                  >
+                    {officialDone ? <CheckCircle2 size={16} /> : <ShieldCheck size={16} />}
+                    {officialDone ? officialResultLabel(test) : "Chính thức"}
+                  </button>
+                )}
               </div>
             </article>
           );

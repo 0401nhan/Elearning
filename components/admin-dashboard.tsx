@@ -91,6 +91,23 @@ type AdminDashboardData = {
   }[];
 };
 
+type RetakeRequestRow = {
+  id: number;
+  assignmentId: number;
+  employeeId: number;
+  testId: number;
+  fullName: string;
+  phone: string;
+  departmentName: string;
+  testTitle: string;
+  officialScore: number | null;
+  officialAttemptsUsed: number;
+  approvedRetakeCount: number;
+  reason: string | null;
+  status: string;
+  requestedAt: string;
+};
+
 function percent(value: number, total: number) {
   return total > 0 ? `${Math.round((value / total) * 100)}%` : "0%";
 }
@@ -172,7 +189,9 @@ export function AdminDashboard({
 }) {
   const [activeAdminIndex, setActiveAdminIndex] = useState(0);
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
+  const [retakeRequests, setRetakeRequests] = useState<RetakeRequestRow[]>([]);
   const [loadError, setLoadError] = useState("");
+  const [noticeError, setNoticeError] = useState("");
   const [resultsPage, setResultsPage] = useState(1);
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -182,8 +201,12 @@ export function AdminDashboard({
   const [dateTo, setDateTo] = useState("");
   const [resultSearch, setResultSearch] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isNoticeOpen, setIsNoticeOpen] = useState(false);
+  const [isNoticeLoading, setIsNoticeLoading] = useState(false);
   const activeAdminItem = adminNavItems[activeAdminIndex];
   const isFullAdmin = user.roles.includes("admin");
+  const resultsNavIndex = adminNavItems.findIndex((item) => item.label === "Kết quả test");
+  const retakeNoticeCount = retakeRequests.length;
   const resultsPagination = dashboard?.resultsPagination ?? {
     page: resultsPage,
     pageSize: RESULTS_PAGE_SIZE,
@@ -249,10 +272,43 @@ export function AdminDashboard({
     };
   }, [dateFrom, dateTo, departmentFilter, refreshKey, resultSearch, resultsPage, statusFilter, testFilter, timeRange]);
 
+  async function loadRetakeNotices() {
+    setIsNoticeLoading(true);
+    setNoticeError("");
+
+    try {
+      const response = await fetch("/api/admin/retake-requests?status=pending", { cache: "no-store" });
+      const responseData = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setNoticeError(responseData?.error ?? "Không thể tải yêu cầu thi lại.");
+        return;
+      }
+
+      setRetakeRequests(responseData?.requests ?? []);
+    } catch {
+      setNoticeError("Không thể kết nối hệ thống.");
+    } finally {
+      setIsNoticeLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadRetakeNotices();
+  }, [refreshKey]);
+
   function resetResultsPage() {
     if (resultsPage !== 1) {
       setResultsPage(1);
     }
+  }
+
+  function openRetakeRequestsPage() {
+    if (resultsNavIndex >= 0) {
+      setActiveAdminIndex(resultsNavIndex);
+    }
+
+    setIsNoticeOpen(false);
   }
 
   const dashboardMetrics = useMemo<Metric[]>(() => {
@@ -359,10 +415,63 @@ export function AdminDashboard({
             <p>Theo dõi đào tạo & kết quả test</p>
           </div>
           <div className="topbar-spacer" />
-          <button className="notification-button">
-            <Bell size={21} />
-            <span>3</span>
-          </button>
+          <div className="admin-notice-menu">
+            <button
+              className={`notification-button ${isNoticeOpen ? "active" : ""}`}
+              onClick={() => setIsNoticeOpen((current) => !current)}
+              aria-label="Yêu cầu thi lại chờ duyệt"
+              type="button"
+            >
+              <Bell size={21} />
+              {retakeNoticeCount > 0 && <span>{retakeNoticeCount}</span>}
+            </button>
+            {isNoticeOpen && (
+              <section className="admin-notice-dropdown">
+                <header>
+                  <div>
+                    <strong>Yêu cầu thi lại</strong>
+                    <small>{retakeNoticeCount} yêu cầu chờ duyệt</small>
+                  </div>
+                  <button className="table-icon" type="button" onClick={loadRetakeNotices} aria-label="Làm mới yêu cầu thi lại">
+                    <RefreshCw size={16} />
+                  </button>
+                </header>
+
+                {noticeError && <p className="login-error">{noticeError}</p>}
+                {isNoticeLoading && <p className="notice-muted">Đang tải yêu cầu...</p>}
+
+                <div className="admin-notice-list">
+                  {retakeRequests.slice(0, 5).map((request) => (
+                    <button key={request.id} type="button" onClick={openRetakeRequestsPage}>
+                      <span>
+                        <strong>{request.fullName}</strong>
+                        <small>{request.departmentName} · {request.phone}</small>
+                      </span>
+                      <span>
+                        <b>{request.testTitle}</b>
+                        <small>
+                          {request.officialScore !== null ? `${request.officialScore}/100` : "Chưa có điểm"} ·{" "}
+                          {formatDateTime(request.requestedAt)}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {!isNoticeLoading && retakeRequests.length === 0 && (
+                  <p className="notice-empty">Không có yêu cầu thi lại đang chờ duyệt.</p>
+                )}
+
+                {retakeRequests.length > 5 && (
+                  <p className="notice-muted">Còn {retakeRequests.length - 5} yêu cầu khác trong trang Kết quả test.</p>
+                )}
+
+                <button className="primary-button" type="button" onClick={openRetakeRequestsPage}>
+                  Xem và xử lý yêu cầu
+                </button>
+              </section>
+            )}
+          </div>
           <UserActions
             user={user}
             roleLabel={user.roles.includes("admin") ? "Admin" : "Trưởng phòng"}
@@ -662,7 +771,13 @@ export function AdminDashboard({
               </section>
             )
           ) : activeAdminItem.label === "Kết quả test" ? (
-            <TestResultsAdminPage user={user} />
+            <TestResultsAdminPage
+              user={user}
+              onRetakeRequestsChanged={() => {
+                setRefreshKey((value) => value + 1);
+                void loadRetakeNotices();
+              }}
+            />
           ) : activeAdminItem.label === "Nhân sự" ? (
             isFullAdmin ? (
               <PeopleAdminPage />

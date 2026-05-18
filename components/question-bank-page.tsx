@@ -2,6 +2,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Download,
   Edit3,
   Filter,
   ListChecks,
@@ -9,9 +10,10 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Upload,
   XCircle
 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 type QuestionDifficulty = "easy" | "medium" | "hard";
 
@@ -41,6 +43,9 @@ type TestOption = {
   code: string;
   title: string;
   status: string;
+  questionCount: number;
+  activeQuestionCount: number;
+  inactiveQuestionCount: number;
 };
 
 type QuestionGroup = {
@@ -115,6 +120,13 @@ function difficultyLabel(difficulty: string) {
   return "Trung bình";
 }
 
+function testStatusLabel(status: string) {
+  if (status === "active") return "Đang mở";
+  if (status === "draft") return "Bản nháp";
+  if (status === "archived") return "Đã lưu trữ";
+  return status;
+}
+
 function formatDate(value: string | null) {
   if (!value) {
     return "--";
@@ -160,6 +172,17 @@ function getPayload(form: QuestionForm) {
   };
 }
 
+function getTemplateFilename(testTitle: string) {
+  const safeTitle = testTitle
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+
+  return `mau-cau-hoi-${safeTitle || "bai-test"}.csv`;
+}
+
 export function QuestionBankPage() {
   const [data, setData] = useState<QuestionBankResponse | null>(null);
   const [search, setSearch] = useState("");
@@ -171,8 +194,11 @@ export function QuestionBankPage() {
   const [form, setForm] = useState<QuestionForm>(emptyForm());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState("");
+  const [importMessage, setImportMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const pagination = data?.pagination ?? { page, pageSize: QUESTION_PAGE_SIZE, total: 0, totalPages: 1 };
   const totalPages = Math.max(1, pagination.totalPages);
@@ -186,6 +212,9 @@ export function QuestionBankPage() {
   const formGroups = form.testId
     ? (data?.groups ?? []).filter((group) => group.testId === Number(form.testId))
     : [];
+  const selectedTest = filterTestId
+    ? data?.tests.find((test) => test.id === Number(filterTestId)) ?? null
+    : null;
 
   async function loadQuestions(targetPage = page) {
     setIsLoading(true);
@@ -233,9 +262,38 @@ export function QuestionBankPage() {
     setPage(1);
   }
 
+  function openTestQuestions(testId: number) {
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            questions: [],
+            summary: { total: 0, active: 0, inactive: 0 },
+            pagination: { page: 1, pageSize: QUESTION_PAGE_SIZE, total: 0, totalPages: 1 }
+          }
+        : current
+    );
+    setFilterTestId(String(testId));
+    setFilterGroupId("");
+    setSearch("");
+    setDifficulty("");
+    setStatus("active");
+    setPage(1);
+    setError("");
+  }
+
+  function closeTestQuestions() {
+    setFilterTestId("");
+    setFilterGroupId("");
+    setSearch("");
+    setDifficulty("");
+    setStatus("active");
+    setPage(1);
+    setError("");
+  }
+
   function openCreateModal() {
-    const selectedTestId = filterTestId || (data?.tests.find((test) => test.status === "active")?.id ?? data?.tests[0]?.id ?? "");
-    setForm(emptyForm(selectedTestId ? String(selectedTestId) : ""));
+    setForm(emptyForm(filterTestId));
     setError("");
     setIsModalOpen(true);
   }
@@ -309,17 +367,161 @@ export function QuestionBankPage() {
     await loadQuestions();
   }
 
+  async function downloadCsvTemplate() {
+    if (!selectedTest) {
+      return;
+    }
+
+    setError("");
+    setImportMessage("");
+
+    const response = await fetch(`/api/admin/questions/import?testId=${selectedTest.id}`).catch(() => null);
+    if (!response?.ok) {
+      const responseData = await response?.json().catch(() => null);
+      setError(responseData?.error ?? "Không thể tải mẫu CSV.");
+      return;
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const filenameMatch = /filename="([^"]+)"/.exec(disposition);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filenameMatch?.[1] ?? getTemplateFilename(selectedTest.title);
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function openCsvPicker() {
+    setError("");
+    setImportMessage("");
+    fileInputRef.current?.click();
+  }
+
+  async function handleCsvImport(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file || !selectedTest) {
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setError("Chỉ hỗ trợ file .csv.");
+      return;
+    }
+
+    setIsImporting(true);
+    setError("");
+    setImportMessage("");
+
+    const formData = new FormData();
+    formData.append("testId", String(selectedTest.id));
+    formData.append("file", file);
+
+    const response = await fetch("/api/admin/questions/import", {
+      method: "POST",
+      body: formData
+    }).catch(() => null);
+    const responseData = await response?.json().catch(() => null);
+    setIsImporting(false);
+
+    if (!response?.ok) {
+      const details = Array.isArray(responseData?.errors) ? ` ${responseData.errors.join(" ")}` : "";
+      setError(`${responseData?.error ?? "Không thể nhập CSV."}${details}`);
+      return;
+    }
+
+    setImportMessage(responseData?.message ?? "Đã nhập câu hỏi từ CSV.");
+    await loadQuestions();
+  }
+
   return (
     <>
       <section className="page-header">
         <div>
-          <h2>Ngân hàng câu hỏi</h2>
-          <p>Quản lý câu hỏi, đáp án đúng, giải thích, nhóm nội dung và trạng thái sử dụng theo từng bài test.</p>
+          <h2>{selectedTest ? selectedTest.title : "Ngân hàng câu hỏi"}</h2>
+          <p>
+            {selectedTest
+              ? "Quản lý câu hỏi, đáp án đúng, giải thích và nhóm nội dung trong bài test này."
+              : "Chọn một bài test để xem và chỉnh sửa các câu hỏi thuộc bài test đó."}
+          </p>
         </div>
-        <button className="primary-button" onClick={openCreateModal}>
-          <Plus size={18} /> Thêm câu hỏi
-        </button>
+        {selectedTest ? (
+          <div className="page-header-actions">
+            <button className="outline-button" onClick={closeTestQuestions}>
+              <ChevronLeft size={18} /> Danh sách bài test
+            </button>
+            <button className="outline-button" onClick={downloadCsvTemplate}>
+              <Download size={18} /> Tải mẫu CSV
+            </button>
+            <button className="outline-button" onClick={openCsvPicker} disabled={isImporting}>
+              <Upload size={18} /> {isImporting ? "Đang nhập" : "Nhập CSV"}
+            </button>
+            <button className="primary-button" onClick={openCreateModal}>
+              <Plus size={18} /> Thêm câu hỏi
+            </button>
+          </div>
+        ) : (
+          <button className="outline-button" onClick={() => loadQuestions()} disabled={isLoading}>
+            <RefreshCw size={17} /> Làm mới
+          </button>
+        )}
       </section>
+
+      {error && <p className="login-error">{error}</p>}
+      {importMessage && <p className="success-message">{importMessage}</p>}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="sr-only"
+        onChange={handleCsvImport}
+      />
+
+      {!selectedTest && (
+        <section className="question-test-grid">
+          {data?.tests.map((test) => (
+            <article className="question-test-card" key={test.id}>
+              <div>
+                <span className={`status-pill ${test.status === "active" ? "success" : "neutral"}`}>
+                  {testStatusLabel(test.status)}
+                </span>
+                <strong>{test.title}</strong>
+                <small>{test.code}</small>
+              </div>
+              <dl>
+                <div>
+                  <dt>Tổng câu</dt>
+                  <dd>{test.questionCount}</dd>
+                </div>
+                <div>
+                  <dt>Đang dùng</dt>
+                  <dd>{test.activeQuestionCount}</dd>
+                </div>
+                <div>
+                  <dt>Đã tắt</dt>
+                  <dd>{test.inactiveQuestionCount}</dd>
+                </div>
+              </dl>
+              <button className="primary-button" type="button" onClick={() => openTestQuestions(test.id)}>
+                <ListChecks size={17} /> Quản lý câu hỏi
+              </button>
+            </article>
+          ))}
+          {data?.tests.length === 0 && (
+            <section className="panel empty-test-panel">
+              <ListChecks size={34} />
+              <strong>Chưa có bài test</strong>
+              <span>Tạo bài test trước, sau đó thêm câu hỏi cho từng bài.</span>
+            </section>
+          )}
+        </section>
+      )}
+
+      {!selectedTest ? null : (
+        <>
 
       <section className="question-bank-summary">
         <article className="stat-card">
@@ -329,7 +531,7 @@ export function QuestionBankPage() {
           <div>
             <span>Tổng câu hỏi</span>
             <strong>{data?.summary.total ?? 0}</strong>
-            <small>Theo bộ lọc hiện tại</small>
+            <small>Trong bài test này</small>
           </div>
         </article>
         <article className="stat-card">
@@ -368,21 +570,6 @@ export function QuestionBankPage() {
             }}
           />
         </label>
-        <select
-          value={filterTestId}
-          onChange={(event) => {
-            setFilterTestId(event.target.value);
-            setFilterGroupId("");
-            setPage(1);
-          }}
-        >
-          <option value="">Tất cả bài test</option>
-          {data?.tests.map((test) => (
-            <option key={test.id} value={test.id}>
-              {test.title}
-            </option>
-          ))}
-        </select>
         <select
           value={filterGroupId}
           onChange={(event) => {
@@ -425,8 +612,6 @@ export function QuestionBankPage() {
         </button>
       </section>
 
-      {error && <p className="login-error">{error}</p>}
-
       <section className="panel admin-table-panel">
         <div className="section-title">
           <h3>Danh sách câu hỏi</h3>
@@ -439,7 +624,6 @@ export function QuestionBankPage() {
             <thead>
               <tr>
                 <th>Câu hỏi</th>
-                <th>Bài test</th>
                 <th>Nhóm</th>
                 <th>Độ khó</th>
                 <th>Đáp án đúng</th>
@@ -460,7 +644,6 @@ export function QuestionBankPage() {
                         <small>{question.explanation ?? "Chưa có giải thích"}</small>
                       </span>
                     </td>
-                    <td>{question.testTitle}</td>
                     <td>{question.groupName ?? "--"}</td>
                     <td>{difficultyLabel(question.difficulty)}</td>
                     <td className="green-text">
@@ -489,7 +672,7 @@ export function QuestionBankPage() {
               })}
               {data?.questions.length === 0 && (
                 <tr>
-                  <td colSpan={8}>Không có câu hỏi phù hợp với bộ lọc.</td>
+                  <td colSpan={7}>Không có câu hỏi phù hợp với bộ lọc.</td>
                 </tr>
               )}
             </tbody>
@@ -529,6 +712,9 @@ export function QuestionBankPage() {
         </div>
       </section>
 
+        </>
+      )}
+
       {isModalOpen && (
         <div className="modal-backdrop">
           <form className="employee-modal question-modal" onSubmit={handleSubmit}>
@@ -545,18 +731,8 @@ export function QuestionBankPage() {
             <div className="employee-form-grid question-form-grid">
               <label className="field">
                 <span>Bài test</span>
-                <div>
-                  <select
-                    value={form.testId}
-                    onChange={(event) => setForm({ ...form, testId: event.target.value, groupId: "" })}
-                  >
-                    <option value="">Chọn bài test</option>
-                    {data?.tests.map((test) => (
-                      <option key={test.id} value={test.id}>
-                        {test.title}
-                      </option>
-                    ))}
-                  </select>
+                <div className="readonly-field">
+                  <strong>{data?.tests.find((test) => test.id === Number(form.testId))?.title ?? selectedTest?.title ?? "--"}</strong>
                 </div>
               </label>
               <label className="field">

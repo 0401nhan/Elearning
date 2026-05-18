@@ -23,6 +23,8 @@ export type ThemeMode = "light" | "dark";
 
 export type AssignmentStatus = "not_started" | "studying" | "passed" | "failed";
 
+export type RetakeRequestStatus = "pending" | "approved" | "rejected";
+
 export type UserAssignment = {
   assignment_id: number;
   test_id: number;
@@ -39,6 +41,8 @@ export type UserAssignment = {
   official_attempts_used: number;
   max_official_attempts: number;
   official_score: number | null;
+  retake_request_count: number;
+  retake_request_status: RetakeRequestStatus | null;
 };
 
 export type UserSummary = {
@@ -64,6 +68,8 @@ export type AssignedTest = {
   officialAttemptsUsed?: number;
   maxOfficialAttempts?: number;
   officialScore?: number;
+  retakeRequestCount?: number;
+  retakeRequestStatus?: RetakeRequestStatus | null;
   status: TestStatus;
   icon: LucideIcon;
   tone: "blue" | "green" | "purple" | "orange";

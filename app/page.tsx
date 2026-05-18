@@ -21,11 +21,18 @@ import { canStartOfficialAttempt, hasOfficialResult } from "@/lib/test-state";
 import type { AssignedTest, Screen, SessionUser, TestStatus, ThemeMode, UserAssignment, UserSummary } from "@/lib/types";
 
 const THEME_STORAGE_KEY = "eb-theme-mode";
+const ACTIVE_OFFICIAL_ATTEMPT_KEY = "eb-active-official-attempt";
 
 type MeResponse = {
   employee: SessionUser;
   summary: UserSummary;
   assignments: UserAssignment[];
+};
+
+type StoredOfficialAttempt = {
+  userId: number;
+  testId: number;
+  updatedAt: number;
 };
 
 const emptySummary: UserSummary = {
@@ -63,10 +70,78 @@ function mapAssignmentToTest(assignment: UserAssignment, index: number): Assigne
     officialAttemptsUsed: assignment.official_attempts_used,
     maxOfficialAttempts: assignment.max_official_attempts,
     officialScore: assignment.official_score ?? undefined,
+    retakeRequestCount: assignment.retake_request_count,
+    retakeRequestStatus: assignment.retake_request_status,
     status,
     icon,
     tone
   };
+}
+
+function readActiveOfficialAttempt() {
+  const rawValue = window.localStorage.getItem(ACTIVE_OFFICIAL_ATTEMPT_KEY);
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<StoredOfficialAttempt>;
+    const userId = Number(parsed.userId);
+    const testId = Number(parsed.testId);
+    const updatedAt = Number(parsed.updatedAt);
+
+    if (!Number.isInteger(userId) || userId <= 0 || !Number.isInteger(testId) || testId <= 0) {
+      window.localStorage.removeItem(ACTIVE_OFFICIAL_ATTEMPT_KEY);
+      return null;
+    }
+
+    return {
+      userId,
+      testId,
+      updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now()
+    };
+  } catch {
+    window.localStorage.removeItem(ACTIVE_OFFICIAL_ATTEMPT_KEY);
+    return null;
+  }
+}
+
+function saveActiveOfficialAttempt(userId: number, testId: number) {
+  window.localStorage.setItem(
+    ACTIVE_OFFICIAL_ATTEMPT_KEY,
+    JSON.stringify({
+      userId,
+      testId,
+      updatedAt: Date.now()
+    } satisfies StoredOfficialAttempt)
+  );
+}
+
+function clearActiveOfficialAttempt() {
+  window.localStorage.removeItem(ACTIVE_OFFICIAL_ATTEMPT_KEY);
+}
+
+function getRestorableOfficialTest(data: MeResponse) {
+  const storedAttempt = readActiveOfficialAttempt();
+  if (!storedAttempt || storedAttempt.userId !== data.employee.id) {
+    return null;
+  }
+
+  const targetTest = data.assignments
+    .map((assignment, index) => mapAssignmentToTest(assignment, index))
+    .find((test) => test.id === storedAttempt.testId);
+
+  if (!targetTest) {
+    clearActiveOfficialAttempt();
+    return null;
+  }
+
+  if (hasOfficialResult(targetTest) && !canStartOfficialAttempt(targetTest)) {
+    clearActiveOfficialAttempt();
+    return null;
+  }
+
+  return targetTest;
 }
 
 export default function Page() {
@@ -126,6 +201,19 @@ export default function Page() {
     return data;
   }, [applyMeData]);
 
+  const rememberActiveOfficialAttempt = useCallback(
+    (testId: number) => {
+      if (userId) {
+        saveActiveOfficialAttempt(userId, testId);
+      }
+    },
+    [userId]
+  );
+
+  const finishActiveOfficialAttempt = useCallback(() => {
+    clearActiveOfficialAttempt();
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -139,7 +227,14 @@ export default function Page() {
         if (response.ok) {
           const data = (await response.json()) as MeResponse;
           applyMeData(data);
-          setScreen(canViewPeopleResultsUser(data.employee) ? "admin" : "home");
+          const restorableTest = getRestorableOfficialTest(data);
+
+          if (restorableTest) {
+            setSelectedTestId(restorableTest.id);
+            setScreen("official");
+          } else {
+            setScreen(canViewPeopleResultsUser(data.employee) ? "admin" : "home");
+          }
         } else {
           setUser(null);
           setAssignments([]);
@@ -186,12 +281,20 @@ export default function Page() {
 
   async function handleLogin(employee: SessionUser) {
     setUser(employee);
-    await reloadUserData().catch(() => null);
-    setScreen(canViewPeopleResultsUser(employee) ? "admin" : "home");
+    const data = await reloadUserData().catch(() => null);
+    const restorableTest = data ? getRestorableOfficialTest(data) : null;
+
+    if (restorableTest) {
+      setSelectedTestId(restorableTest.id);
+      setScreen("official");
+    } else {
+      setScreen(canViewPeopleResultsUser(employee) ? "admin" : "home");
+    }
   }
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    clearActiveOfficialAttempt();
     setUser(null);
     setAssignments([]);
     setUserSummary(emptySummary);
@@ -212,13 +315,42 @@ export default function Page() {
   function openOfficial(testId: number) {
     const targetTest = assignedUserTests.find((item) => item.id === testId);
     if (targetTest && hasOfficialResult(targetTest) && !canStartOfficialAttempt(targetTest)) {
+      clearActiveOfficialAttempt();
       setSelectedTestId(testId);
       setScreen("test");
       return;
     }
 
+    if (userId) {
+      saveActiveOfficialAttempt(userId, testId);
+    }
     setSelectedTestId(testId);
     setScreen("official");
+  }
+
+  async function requestRetake(test: AssignedTest) {
+    if (test.retakeRequestStatus === "pending") {
+      throw new Error("Yêu cầu thi lại của bài này đã được gửi và đang chờ duyệt.");
+    }
+
+    const response = await fetch("/api/retake-requests", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        testId: test.id,
+        reason: `Xin mở lại lượt thi chính thức cho bài ${test.title}.`
+      })
+    }).catch(() => null);
+    const responseData = await response?.json().catch(() => null);
+
+    if (!response?.ok) {
+      throw new Error(responseData?.error ?? "Không thể gửi yêu cầu thi lại.");
+    }
+
+    await reloadUserData();
+    return responseData?.message ?? "Yêu cầu thi lại đã được gửi và đang chờ duyệt.";
   }
 
   if (isBooting) {
@@ -260,6 +392,7 @@ export default function Page() {
           onOpenTest={openTest}
           onPractice={openPractice}
           onOfficial={openOfficial}
+          onRequestRetake={requestRetake}
         />
       </AppShell>
     );
@@ -280,6 +413,7 @@ export default function Page() {
           onOpenTest={openTest}
           onPractice={openPractice}
           onOfficial={openOfficial}
+          onRequestRetake={requestRetake}
         />
       )}
       {screen === "documents" && (
@@ -295,6 +429,7 @@ export default function Page() {
           onOpenTest={openTest}
           onPractice={openPractice}
           onOfficial={openOfficial}
+          onRequestRetake={requestRetake}
         />
       )}
       {screen === "test" && selectedTest && (
@@ -321,7 +456,12 @@ export default function Page() {
       {screen === "official" && selectedTest && (
         <OfficialScreen
           test={selectedTest}
-          onHome={() => setScreen("home")}
+          onAttemptStarted={rememberActiveOfficialAttempt}
+          onAttemptFinished={finishActiveOfficialAttempt}
+          onHome={() => {
+            clearActiveOfficialAttempt();
+            setScreen("home");
+          }}
           onRefreshAssignments={reloadUserData}
         />
       )}

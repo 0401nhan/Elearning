@@ -7,9 +7,7 @@ export async function GET() {
     const rows = await queryRows<(RowDataPacket & { ok: number })[]>("SELECT 1 AS ok");
     return NextResponse.json({ ok: rows[0]?.ok === 1 });
   } catch (error) {
-    return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Database connection failed" },
-      { status: 500 }
-    );
+    console.error("Database health check failed", error);
+    return NextResponse.json({ ok: false }, { status: 500 });
   }
 }

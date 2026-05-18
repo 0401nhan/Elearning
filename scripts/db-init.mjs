@@ -166,6 +166,43 @@ async function ensureEmployeeColumn(connection, columnName, definition) {
   }
 }
 
+async function ensureIndex(connection, tableName, indexName, definition) {
+  const [indexes] = await connection.query(
+    `
+    SELECT INDEX_NAME
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+    LIMIT 1
+    `,
+    [requireEnv("DATABASE_NAME"), tableName, indexName]
+  );
+
+  if (indexes.length === 0) {
+    const databaseName = requireEnv("DATABASE_NAME").replace(/`/g, "``");
+    const safeTableName = tableName.replace(/`/g, "``");
+    await connection.query(`ALTER TABLE \`${databaseName}\`.\`${safeTableName}\` ADD ${definition}`);
+  }
+}
+
+async function dropIndexIfExists(connection, tableName, indexName) {
+  const [indexes] = await connection.query(
+    `
+    SELECT INDEX_NAME
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+    LIMIT 1
+    `,
+    [requireEnv("DATABASE_NAME"), tableName, indexName]
+  );
+
+  if (indexes.length > 0) {
+    const databaseName = requireEnv("DATABASE_NAME").replace(/`/g, "``");
+    const safeTableName = tableName.replace(/`/g, "``");
+    const safeIndexName = indexName.replace(/`/g, "``");
+    await connection.query(`ALTER TABLE \`${databaseName}\`.\`${safeTableName}\` DROP INDEX \`${safeIndexName}\``);
+  }
+}
+
 function buildDemoEmployees() {
   return Array.from({ length: demoEmployeeCount }, (_, index) => {
     const id = demoEmployeeStartId + index;
@@ -744,6 +781,8 @@ async function main() {
     await runSqlFile(connection, "schema.sql");
     await ensureEmployeeColumn(connection, "password_hash", "password_hash VARCHAR(220) NOT NULL DEFAULT '' AFTER phone");
     await ensureEmployeeColumn(connection, "work_area", "work_area VARCHAR(120) NULL AFTER department_id");
+    await ensureIndex(connection, "retake_requests", "idx_retake_assignment", "KEY idx_retake_assignment (assignment_id)");
+    await dropIndexIfExists(connection, "retake_requests", "uq_retake_assignment_once");
     await runSqlFile(connection, "seed.sql");
     await seedDemoData(connection);
     console.log("Database eb_elearning initialized successfully.");

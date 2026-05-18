@@ -134,7 +134,13 @@ function readFilename(contentDisposition: string | null, fallback: string) {
   return match?.[1] ?? fallback;
 }
 
-export function TestResultsAdminPage({ user }: { user: SessionUser }) {
+export function TestResultsAdminPage({
+  user,
+  onRetakeRequestsChanged
+}: {
+  user: SessionUser;
+  onRetakeRequestsChanged?: () => void;
+}) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [retakeRequests, setRetakeRequests] = useState<RetakeRequestRow[]>([]);
   const [page, setPage] = useState(1);
@@ -326,6 +332,7 @@ export function TestResultsAdminPage({ user }: { user: SessionUser }) {
 
       setRetakeSuccess(action === "approve" ? "Đã duyệt mở thêm 1 lượt thi." : "Đã từ chối yêu cầu thi lại.");
       await Promise.all([loadRetakeRequests(), loadResults(page)]);
+      onRetakeRequestsChanged?.();
     } catch {
       setRetakeError("Không thể kết nối hệ thống.");
     } finally {

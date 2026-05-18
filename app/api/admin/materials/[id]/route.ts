@@ -14,6 +14,25 @@ const MATERIAL_TYPES = new Set(["pdf", "image", "slide", "text", "video", "link"
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "training-materials");
 const PUBLIC_UPLOAD_PATH = "/uploads/training-materials";
+const ALLOWED_UPLOAD_EXTENSIONS = new Set([
+  ".csv",
+  ".doc",
+  ".docx",
+  ".gif",
+  ".jpeg",
+  ".jpg",
+  ".mov",
+  ".mp4",
+  ".pdf",
+  ".png",
+  ".ppt",
+  ".pptx",
+  ".txt",
+  ".webm",
+  ".webp",
+  ".xls",
+  ".xlsx"
+]);
 
 function cleanText(value: unknown) {
   const text = String(value ?? "").trim();
@@ -44,6 +63,19 @@ function safeFileName(name: string) {
   return `${base || "tai-lieu"}-${randomUUID()}${extension}`;
 }
 
+function isAllowedContentUrl(url: string) {
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return true;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === "https:" || parsedUrl.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 async function saveUploadedFile(file: File) {
   if (!file.size) {
     return null;
@@ -53,9 +85,14 @@ async function saveUploadedFile(file: File) {
     throw new Error("FILE_TOO_LARGE");
   }
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
+  const extension = path.extname(file.name).toLowerCase();
+  if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
+    throw new Error("FILE_TYPE_NOT_ALLOWED");
+  }
+
   const filename = safeFileName(file.name);
   const fullPath = path.join(UPLOAD_DIR, filename);
+  await mkdir(UPLOAD_DIR, { recursive: true });
   await writeFile(fullPath, Buffer.from(await file.arrayBuffer()));
 
   return `${PUBLIC_UPLOAD_PATH}/${filename}`;
@@ -101,11 +138,19 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "File upload tối đa 30MB." }, { status: 400 });
     }
 
+    if ((error as Error).message === "FILE_TYPE_NOT_ALLOWED") {
+      return NextResponse.json({ error: "Dinh dang file upload khong duoc ho tro." }, { status: 400 });
+    }
+
     throw error;
   }
 
   if (materialType !== "text" && !contentUrl) {
     return NextResponse.json({ error: "Vui lòng upload file hoặc nhập đường dẫn tài liệu." }, { status: 400 });
+  }
+
+  if (contentUrl && !isAllowedContentUrl(contentUrl)) {
+    return NextResponse.json({ error: "Duong dan tai lieu chi ho tro http, https hoac duong dan noi bo." }, { status: 400 });
   }
 
   if (materialType === "text" && !contentText) {
