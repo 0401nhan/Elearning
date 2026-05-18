@@ -292,7 +292,7 @@ export async function GET(request: Request) {
       JOIN tests t ON t.id = attempt.test_id
       LEFT JOIN questions q ON q.id = aa.question_id
       ${whereSql ? `${whereSql} AND attempt.submitted_at IS NOT NULL AND aa.is_correct = 0` : "WHERE attempt.submitted_at IS NOT NULL AND aa.is_correct = 0"}
-      GROUP BY t.id, t.title, aa.question_id, question_text
+      GROUP BY t.id, t.title, aa.question_id, COALESCE(aq.question_text_snapshot, q.question_text, CONCAT('Câu hỏi #', aa.question_id))
       ORDER BY wrong_count DESC, aa.question_id
       LIMIT ${limit}
       `,
