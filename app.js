@@ -211,16 +211,229 @@ function hasRequiredTables(tableNames) {
     "employees",
     "tests",
     "questions",
+    "answer_options",
     "test_assignments",
-    "test_attempts"
+    "test_attempts",
+    "attempt_questions",
+    "attempt_answers"
   ];
 
   return requiredTables.every((tableName) => tableNames.has(tableName));
 }
 
+async function tableExists(connection, tableName) {
+  const [rows] = await connection.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+    `,
+    [tableName]
+  );
+
+  return Number(rows[0]?.total ?? 0) > 0;
+}
+
+async function columnExists(connection, tableName, columnName) {
+  const [rows] = await connection.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      AND COLUMN_NAME = ?
+    `,
+    [tableName, columnName]
+  );
+
+  return Number(rows[0]?.total ?? 0) > 0;
+}
+
+async function foreignKeyExists(connection, tableName, constraintName) {
+  const [rows] = await connection.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      AND CONSTRAINT_NAME = ?
+    `,
+    [tableName, constraintName]
+  );
+
+  return Number(rows[0]?.total ?? 0) > 0;
+}
+
+async function addColumnIfMissing(connection, tableName, columnName, definition) {
+  if (await columnExists(connection, tableName, columnName)) {
+    return;
+  }
+
+  await connection.query(`ALTER TABLE ${quoteIdentifier(tableName)} ADD COLUMN ${definition}`);
+  console.log(`[startup] Added column ${tableName}.${columnName}.`);
+}
+
+async function dropForeignKeyIfExists(connection, tableName, constraintName) {
+  if (!(await foreignKeyExists(connection, tableName, constraintName))) {
+    return;
+  }
+
+  await connection.query(`ALTER TABLE ${quoteIdentifier(tableName)} DROP FOREIGN KEY ${quoteIdentifier(constraintName)}`);
+  console.log(`[startup] Dropped foreign key ${tableName}.${constraintName}.`);
+}
+
+async function ensureNotificationReadsTable(connection) {
+  if (await tableExists(connection, "notification_reads")) {
+    return;
+  }
+
+  await connection.query(`
+    CREATE TABLE notification_reads (
+      notification_id BIGINT UNSIGNED NOT NULL,
+      employee_id BIGINT UNSIGNED NOT NULL,
+      is_read TINYINT(1) NOT NULL DEFAULT 1,
+      read_at DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (notification_id, employee_id),
+      KEY idx_notification_reads_employee (employee_id, is_read),
+      CONSTRAINT fk_notification_reads_notification
+        FOREIGN KEY (notification_id) REFERENCES notifications(id)
+        ON DELETE CASCADE,
+      CONSTRAINT fk_notification_reads_employee
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+  console.log("[startup] Created table notification_reads.");
+}
+
+async function ensureAttemptQuestionOptionsTable(connection) {
+  if (await tableExists(connection, "attempt_question_options")) {
+    return;
+  }
+
+  await connection.query(`
+    CREATE TABLE attempt_question_options (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      attempt_id BIGINT UNSIGNED NOT NULL,
+      question_id BIGINT UNSIGNED NOT NULL,
+      option_id BIGINT UNSIGNED NOT NULL,
+      option_order INT NOT NULL,
+      option_label_snapshot CHAR(1) NULL,
+      option_text_snapshot TEXT NULL,
+      is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_attempt_question_options_order (attempt_id, question_id, option_order),
+      UNIQUE KEY uq_attempt_question_options_option (attempt_id, question_id, option_id),
+      CONSTRAINT fk_attempt_question_options_attempt
+        FOREIGN KEY (attempt_id) REFERENCES test_attempts(id)
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB
+  `);
+  console.log("[startup] Created table attempt_question_options.");
+}
+
+async function backfillAttemptSnapshots(connection) {
+  await connection.query(`
+    UPDATE test_attempts attempt
+    JOIN tests t ON t.id = attempt.test_id
+    SET attempt.pass_score_snapshot = t.pass_score
+    WHERE attempt.submitted_at IS NOT NULL
+      AND attempt.pass_score_snapshot IS NULL
+  `);
+
+  await connection.query(`
+    UPDATE attempt_questions aq
+    LEFT JOIN questions q ON q.id = aq.question_id
+    LEFT JOIN question_groups qg ON qg.id = q.group_id
+    SET
+      aq.question_text_snapshot = COALESCE(aq.question_text_snapshot, q.question_text),
+      aq.explanation_snapshot = COALESCE(aq.explanation_snapshot, q.explanation),
+      aq.difficulty_snapshot = COALESCE(aq.difficulty_snapshot, q.difficulty),
+      aq.group_name_snapshot = COALESCE(aq.group_name_snapshot, qg.name)
+    WHERE q.id IS NOT NULL
+      AND (
+        aq.question_text_snapshot IS NULL
+        OR aq.difficulty_snapshot IS NULL
+      )
+  `);
+
+  await connection.query(`
+    UPDATE attempt_question_options aqo
+    LEFT JOIN answer_options ao ON ao.id = aqo.option_id
+    SET
+      aqo.option_label_snapshot = COALESCE(aqo.option_label_snapshot, ao.option_label),
+      aqo.option_text_snapshot = COALESCE(aqo.option_text_snapshot, ao.option_text),
+      aqo.is_correct_snapshot = ao.is_correct
+    WHERE ao.id IS NOT NULL
+      AND (
+        aqo.option_label_snapshot IS NULL
+        OR aqo.option_text_snapshot IS NULL
+        OR aqo.is_correct_snapshot <> ao.is_correct
+      )
+  `);
+}
+
+async function runStartupMigrations(connection) {
+  if (process.env.AUTO_DB_MIGRATE === "false") {
+    console.log("[startup] AUTO_DB_MIGRATE=false, skipping database migrations.");
+    return;
+  }
+
+  console.log("[startup] Applying database migrations...");
+  await ensureNotificationReadsTable(connection);
+  await addColumnIfMissing(connection, "test_attempts", "pass_score_snapshot", "pass_score_snapshot DECIMAL(5,2) NULL AFTER score");
+  await ensureAttemptQuestionOptionsTable(connection);
+
+  await dropForeignKeyIfExists(connection, "attempt_questions", "fk_attempt_questions_question");
+  await dropForeignKeyIfExists(connection, "attempt_question_options", "fk_attempt_question_options_question");
+  await dropForeignKeyIfExists(connection, "attempt_question_options", "fk_attempt_question_options_option");
+  await dropForeignKeyIfExists(connection, "attempt_answers", "fk_attempt_answers_question");
+  await dropForeignKeyIfExists(connection, "attempt_answers", "fk_attempt_answers_option");
+
+  await addColumnIfMissing(connection, "attempt_questions", "question_text_snapshot", "question_text_snapshot TEXT NULL AFTER question_order");
+  await addColumnIfMissing(connection, "attempt_questions", "explanation_snapshot", "explanation_snapshot TEXT NULL AFTER question_text_snapshot");
+  await addColumnIfMissing(connection, "attempt_questions", "difficulty_snapshot", "difficulty_snapshot VARCHAR(20) NULL AFTER explanation_snapshot");
+  await addColumnIfMissing(connection, "attempt_questions", "group_name_snapshot", "group_name_snapshot VARCHAR(180) NULL AFTER difficulty_snapshot");
+  await addColumnIfMissing(connection, "attempt_question_options", "option_label_snapshot", "option_label_snapshot CHAR(1) NULL AFTER option_order");
+  await addColumnIfMissing(connection, "attempt_question_options", "option_text_snapshot", "option_text_snapshot TEXT NULL AFTER option_label_snapshot");
+  await addColumnIfMissing(
+    connection,
+    "attempt_question_options",
+    "is_correct_snapshot",
+    "is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0 AFTER option_text_snapshot"
+  );
+
+  await backfillAttemptSnapshots(connection);
+  console.log("[startup] Database migrations are up to date.");
+}
+
 async function ensureDatabase() {
   if (process.env.AUTO_DB_INIT === "false") {
-    console.log("[startup] AUTO_DB_INIT=false, skipping database initialization check.");
+    if (process.env.AUTO_DB_MIGRATE === "false") {
+      console.log("[startup] AUTO_DB_INIT=false and AUTO_DB_MIGRATE=false, skipping database startup checks.");
+      return;
+    }
+
+    const { connection: connectionConfig, databaseName } = getDatabaseConfig();
+    let databaseConnection;
+    try {
+      databaseConnection = await mysql.createConnection({
+        ...connectionConfig,
+        database: databaseName
+      });
+    } catch (error) {
+      throw formatDatabaseAccessError(error, databaseName);
+    }
+
+    try {
+      await runStartupMigrations(databaseConnection);
+      console.log(`[startup] Database "${databaseName}" migrations completed.`);
+    } finally {
+      await databaseConnection.end();
+    }
     return;
   }
 
@@ -267,6 +480,7 @@ async function ensureDatabase() {
       );
     }
 
+    await runStartupMigrations(databaseConnection);
     console.log(`[startup] Database "${databaseName}" is ready.`);
   } finally {
     await databaseConnection.end();
