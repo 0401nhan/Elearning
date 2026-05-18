@@ -10,7 +10,8 @@
     "lint": "eslint . --max-warnings=0",
     "db:init": "node scripts/db-init.mjs",
     "db:optimize-concurrency": "node scripts/db-optimize-concurrency.mjs",
-    "db:seed-admin-test": "node scripts/seed-admin-onboarding-test.mjs"
+    "db:seed-admin-test": "node scripts/seed-admin-onboarding-test.mjs",
+    "test:deep": "node scripts/deep-smoke-test.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
