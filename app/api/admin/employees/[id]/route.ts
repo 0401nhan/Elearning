@@ -7,6 +7,9 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+const DEFAULT_ROLE_ID = 1;
+const ALLOWED_ROLE_IDS = new Set([1, 2, 6]);
+
 function cleanText(value: unknown) {
   const text = String(value ?? "").trim();
   return text || null;
@@ -14,11 +17,14 @@ function cleanText(value: unknown) {
 
 function parseRoleIds(value: unknown) {
   if (!Array.isArray(value)) {
-    return [1];
+    return [DEFAULT_ROLE_ID];
   }
 
-  const ids = value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0);
-  return ids.length ? [...new Set(ids)] : [1];
+  const roleId = value
+    .map((item) => Number(item))
+    .find((item) => Number.isInteger(item) && ALLOWED_ROLE_IDS.has(item));
+
+  return [roleId ?? DEFAULT_ROLE_ID];
 }
 
 async function requireAdmin(request: Request) {

@@ -13,7 +13,7 @@ import {
   X
 } from "lucide-react";
 import type { CSSProperties } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOfficialLocked, isOfficialPassed, officialResultLabel, officialResultTone } from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
 
@@ -91,6 +91,19 @@ export function PracticeScreen({
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const activeQuestionRef = useRef<HTMLDivElement | null>(null);
+  const pendingQuestionFocusRef = useRef(false);
+  const focusActiveQuestion = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const element = activeQuestionRef.current;
+      if (!element) {
+        return;
+      }
+
+      element.focus({ preventScroll: true });
+      element.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+    });
+  }, []);
 
   const questions = useMemo(() => detail?.questions ?? [], [detail]);
   const revealPracticeAnswers = Boolean(detail?.test.show_practice_answers);
@@ -146,6 +159,15 @@ export function PracticeScreen({
     loadPractice();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [test.id]);
+
+  useEffect(() => {
+    if (!pendingQuestionFocusRef.current || !activeQuestion) {
+      return;
+    }
+
+    pendingQuestionFocusRef.current = false;
+    focusActiveQuestion();
+  }, [activeQuestion, focusActiveQuestion]);
 
   async function submitPractice() {
     if (!canSubmit) {
@@ -221,8 +243,16 @@ export function PracticeScreen({
   }
 
   function goToQuestion(index: number) {
-    setCurrentIndex(Math.max(0, Math.min(questions.length - 1, index)));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const nextIndex = Math.max(0, Math.min(questions.length - 1, index));
+    pendingQuestionFocusRef.current = true;
+
+    if (nextIndex === currentIndex) {
+      pendingQuestionFocusRef.current = false;
+      focusActiveQuestion();
+      return;
+    }
+
+    setCurrentIndex(nextIndex);
   }
 
   function getAnswerClassName(question: PracticeQuestion, answer: AnswerOption) {
@@ -384,9 +414,11 @@ export function PracticeScreen({
 
               {activeQuestion && (
                 <div
+                  ref={activeQuestionRef}
                   key={activeQuestion.id}
                   className="practice-question-item practice-single-question question-card-enter"
                   id={`practice-question-${activeQuestion.id}`}
+                  tabIndex={-1}
                 >
                   <div className="question-heading">
                     <span>Câu {currentIndex + 1}</span>

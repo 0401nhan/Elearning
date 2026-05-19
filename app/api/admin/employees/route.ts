@@ -43,6 +43,8 @@ type CountRow = RowDataPacket & {
 };
 
 const ONLINE_THRESHOLD_MINUTES = 100;
+const DEFAULT_ROLE_ID = 1;
+const ALLOWED_ROLE_IDS = new Set([1, 2, 6]);
 
 function requireAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   return Boolean(user && isAdmin(user));
@@ -65,11 +67,14 @@ function getIntegerParam(value: string | null, fallback: number, min: number, ma
 
 function parseRoleIds(value: unknown) {
   if (!Array.isArray(value)) {
-    return [1];
+    return [DEFAULT_ROLE_ID];
   }
 
-  const ids = value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0);
-  return ids.length ? [...new Set(ids)] : [1];
+  const roleId = value
+    .map((item) => Number(item))
+    .find((item) => Number.isInteger(item) && ALLOWED_ROLE_IDS.has(item));
+
+  return [roleId ?? DEFAULT_ROLE_ID];
 }
 
 function mapEmployee(row: EmployeeRow) {
@@ -161,7 +166,14 @@ export async function GET(request: Request) {
     queryRows<CountRow[]>(`SELECT COUNT(*) AS total FROM employees e ${whereSql}`, values),
     queryRows<CountRow[]>(`SELECT COUNT(*) AS total FROM employees e ${onlineWhereSql}`, values),
     queryRows<DepartmentRow[]>(departmentOptionsSql, departmentOptionsValues),
-    queryRows<RoleRow[]>("SELECT id, code, name FROM roles ORDER BY id"),
+    queryRows<RoleRow[]>(
+      `
+      SELECT id, code, name
+      FROM roles
+      WHERE code IN ('employee', 'department_manager', 'admin')
+      ORDER BY FIELD(code, 'employee', 'department_manager', 'admin')
+      `
+    ),
     queryRows<DistinctRow[]>(
       `
       SELECT DISTINCT work_area AS value

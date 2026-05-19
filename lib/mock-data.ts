@@ -89,7 +89,7 @@ export const resultRows: ResultRow[] = [
     score: 85,
     time: "18 phút",
     status: "Đạt",
-    approver: "HR Admin"
+    approver: "Admin"
   },
   {
     name: "Trần Thị B",
@@ -102,7 +102,7 @@ export const resultRows: ResultRow[] = [
     score: 62,
     time: "16 phút",
     status: "Chưa đạt",
-    approver: "HR Admin"
+    approver: "Admin"
   },
   {
     name: "Lê Văn C",
@@ -128,7 +128,7 @@ export const resultRows: ResultRow[] = [
     score: 58,
     time: "15 phút",
     status: "Chưa đạt",
-    approver: "HR Admin"
+    approver: "Admin"
   },
   {
     name: "Hoàng Văn E",

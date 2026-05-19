@@ -10,6 +10,8 @@
     "lint": "eslint . --max-warnings=0",
     "db:init": "node scripts/db-init.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
+    "db:import-org": "node scripts/import-org-from-excel.mjs",
+    "db:import-questions": "node scripts/import-questions-from-docx.mjs",
     "db:optimize-concurrency": "node scripts/db-optimize-concurrency.mjs",
     "db:seed-admin-test": "node scripts/seed-admin-onboarding-test.mjs",
     "test:deep": "node scripts/deep-smoke-test.mjs"

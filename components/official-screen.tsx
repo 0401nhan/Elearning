@@ -117,6 +117,19 @@ export function OfficialScreen({
   const [answerPulse, setAnswerPulse] = useState<{ questionId: number; answerId: number } | null>(null);
   const autoSubmitRef = useRef(false);
   const deadlineAtRef = useRef<number | null>(null);
+  const activeQuestionRef = useRef<HTMLDivElement | null>(null);
+  const pendingQuestionFocusRef = useRef(false);
+  const focusActiveQuestion = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const element = activeQuestionRef.current;
+      if (!element) {
+        return;
+      }
+
+      element.focus({ preventScroll: true });
+      element.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+    });
+  }, []);
 
   const questions = useMemo(() => detail?.questions ?? [], [detail]);
   const activeQuestion = questions[currentIndex];
@@ -291,6 +304,31 @@ export function OfficialScreen({
     void submitOfficial(true);
   }, [noOfficialAttempts, questions.length, remainingSeconds, result, submitOfficial]);
 
+  useEffect(() => {
+    if (!pendingQuestionFocusRef.current || !activeQuestion) {
+      return;
+    }
+
+    pendingQuestionFocusRef.current = false;
+    focusActiveQuestion();
+  }, [activeQuestion, focusActiveQuestion]);
+
+  const goToQuestion = useCallback(
+    (index: number) => {
+      const nextIndex = Math.max(0, Math.min(questions.length - 1, index));
+      pendingQuestionFocusRef.current = true;
+
+      if (nextIndex === currentIndex) {
+        pendingQuestionFocusRef.current = false;
+        focusActiveQuestion();
+        return;
+      }
+
+      setCurrentIndex(nextIndex);
+    },
+    [currentIndex, focusActiveQuestion, questions.length]
+  );
+
   function handleSubmitOfficial() {
     if (unansweredCount > 0) {
       const confirmed = window.confirm(
@@ -369,13 +407,13 @@ export function OfficialScreen({
 
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        setCurrentIndex((current) => Math.max(0, current - 1));
+        goToQuestion(currentIndex - 1);
         return;
       }
 
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        setCurrentIndex((current) => Math.min(questions.length - 1, current + 1));
+        goToQuestion(currentIndex + 1);
         return;
       }
 
@@ -389,7 +427,7 @@ export function OfficialScreen({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeQuestion, isSubmitting, noOfficialAttempts, questions.length, result, selectOfficialAnswer]);
+  }, [activeQuestion, currentIndex, goToQuestion, isSubmitting, noOfficialAttempts, questions.length, result, selectOfficialAnswer]);
 
   async function requestRetake() {
     if (pendingRetakeRequestExists) {
@@ -561,7 +599,12 @@ export function OfficialScreen({
                 <span>{progressPercent}%</span>
               </div>
 
-              <div key={activeQuestion.id} className="question-box official-question-box question-card-enter">
+              <div
+                ref={activeQuestionRef}
+                key={activeQuestion.id}
+                className="question-box official-question-box question-card-enter"
+                tabIndex={-1}
+              >
                 <h3>
                   Câu {currentIndex + 1}. {activeQuestion.question_text}
                 </h3>
@@ -590,14 +633,14 @@ export function OfficialScreen({
               <footer className="official-footer">
                 <button
                   className="outline-button"
-                  onClick={() => setCurrentIndex((current) => Math.max(0, current - 1))}
+                  onClick={() => goToQuestion(currentIndex - 1)}
                   disabled={currentIndex === 0}
                 >
                   <ChevronLeft size={17} /> Câu trước
                 </button>
                 <button
                   className="outline-button"
-                  onClick={() => setCurrentIndex((current) => Math.min(questions.length - 1, current + 1))}
+                  onClick={() => goToQuestion(currentIndex + 1)}
                   disabled={currentIndex >= questions.length - 1}
                 >
                   Câu sau <ChevronRight size={17} />
@@ -627,7 +670,7 @@ export function OfficialScreen({
                   key={question.id}
                   type="button"
                   className={`${index === currentIndex ? "current" : ""} ${answers[question.id] ? "answered" : ""}`}
-                  onClick={() => setCurrentIndex(index)}
+                  onClick={() => goToQuestion(index)}
                 >
                   {index + 1}
                 </button>

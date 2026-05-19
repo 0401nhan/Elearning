@@ -339,7 +339,7 @@ async function seedDemoData(connection) {
     demoEmployeeEndId
   ]);
   await connection.query("INSERT INTO employee_roles (employee_id, role_id) VALUES ?", [
-    employees.flatMap((employee) => (employee.isManager ? [[employee.id, 1], [employee.id, 2]] : [[employee.id, 1]]))
+    employees.map((employee) => [employee.id, employee.isManager ? 2 : 1])
   ]);
 
   await connection.query("DELETE FROM attempt_answers WHERE attempt_id IN (SELECT id FROM test_attempts WHERE employee_id BETWEEN ? AND ?)", [

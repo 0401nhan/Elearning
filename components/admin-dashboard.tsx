@@ -234,7 +234,7 @@ export function AdminDashboard({
   const canManageQuestions = canManageQuestionsUser(user);
   const canManageMaterials = canManageMaterialsUser(user);
   const canManageSystem = canManageSystemUser(user);
-  const adminRoleLabel = isFullAdmin ? "Admin" : canManageSystem || canManageAssignments || canManageQuestions || canManageMaterials ? "Quản trị phân quyền" : "Trưởng phòng";
+  const adminRoleLabel = isFullAdmin ? "Admin" : "Trưởng phòng";
   const visibleAdminNavItems = useMemo(
     () => adminNavItems.filter((item) => canViewAdminNavItem(item.label, user)),
     [user]

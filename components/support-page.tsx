@@ -26,7 +26,7 @@ export function SupportPage() {
       <section className="support-grid">
         <article className="panel support-card">
           <Mail size={34} />
-          <h3>HR Admin</h3>
+          <h3>HCNS</h3>
           <p>Hỗ trợ thông tin nhân sự, quyền làm bài và mở lượt thi lại.</p>
           <a className="primary-button" href={supportLinks.hcns} target="_blank" rel="noreferrer">
             Gửi yêu cầu
@@ -34,7 +34,7 @@ export function SupportPage() {
         </article>
         <article className="panel support-card">
           <ShieldCheck size={34} />
-          <h3>HSE Admin</h3>
+          <h3>HSE</h3>
           <p>Giải đáp tài liệu HSE, checklist hiện trường và quy trình an toàn.</p>
           <a className="outline-button" href={supportLinks.hse} target="_blank" rel="noreferrer">
             Liên hệ HSE
@@ -42,7 +42,7 @@ export function SupportPage() {
         </article>
         <article className="panel support-card">
           <Phone size={34} />
-          <h3>IT Admin</h3>
+          <h3>IT hỗ trợ</h3>
           <p>Xử lý lỗi hệ thống, trình duyệt, dữ liệu và tài khoản đăng nhập.</p>
           <a className="outline-button" href={supportLinks.it} target="_blank" rel="noreferrer">
             Báo lỗi

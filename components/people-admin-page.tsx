@@ -276,16 +276,11 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
     setIsModalOpen(true);
   }
 
-  function toggleRole(roleId: number) {
-    setForm((current) => {
-      const hasRole = current.roleIds.includes(roleId);
-      const roleIds = hasRole ? current.roleIds.filter((id) => id !== roleId) : [...current.roleIds, roleId];
-
-      return {
-        ...current,
-        roleIds: roleIds.length ? roleIds : [1]
-      };
-    });
+  function selectRole(roleId: number) {
+    setForm((current) => ({
+      ...current,
+      roleIds: [roleId]
+    }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -686,9 +681,10 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
                 {data?.roles.map((role) => (
                   <label key={role.id}>
                     <input
-                      type="checkbox"
+                      type="radio"
+                      name="employee-role"
                       checked={form.roleIds.includes(role.id)}
-                      onChange={() => toggleRole(role.id)}
+                      onChange={() => selectRole(role.id)}
                     />
                     <span>{role.name}</span>
                   </label>

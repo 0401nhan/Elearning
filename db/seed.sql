@@ -14,9 +14,6 @@ ON DUPLICATE KEY UPDATE code = VALUES(code), name = VALUES(name), description = 
 INSERT INTO roles (id, code, name, description) VALUES
   (1, 'employee', 'Nhân sự', 'Xem tài liệu, làm thử, làm chính thức, xem kết quả cá nhân'),
   (2, 'department_manager', 'Trưởng phòng', 'Xem kết quả nhân sự thuộc phòng mình'),
-  (3, 'hr_admin', 'HR Admin', 'Quản lý test HCNS, xem báo cáo'),
-  (4, 'hse_admin', 'HSE Admin', 'Quản lý test HSE, xem báo cáo'),
-  (5, 'it_admin', 'IT Admin', 'Quản trị hệ thống, upload câu hỏi, backup dữ liệu'),
   (6, 'admin', 'Admin', 'Toàn quyền')
 ON DUPLICATE KEY UPDATE code = VALUES(code), name = VALUES(name), description = VALUES(description);
 
@@ -33,13 +30,18 @@ INSERT INTO permissions (id, code, name) VALUES
   (10, 'system.manage', 'Cài đặt hệ thống')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 
-INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES
+DELETE FROM role_permissions
+WHERE role_id IN (
+  SELECT id FROM roles WHERE code IN ('employee', 'department_manager', 'admin')
+);
+
+INSERT INTO role_permissions (role_id, permission_id) VALUES
   (1,1),(1,2),(1,3),(1,4),
   (2,1),(2,2),(2,3),(2,4),(2,5),
-  (3,1),(3,4),(3,5),(3,6),(3,8),(3,9),
-  (4,1),(4,4),(4,5),(4,6),(4,7),(4,8),(4,9),
-  (5,1),(5,6),(5,7),(5,8),(5,9),(5,10),
   (6,1),(6,2),(6,3),(6,4),(6,5),(6,6),(6,7),(6,8),(6,9),(6,10);
+
+DELETE FROM roles
+WHERE code NOT IN ('employee', 'department_manager', 'admin');
 
 INSERT INTO employees
   (id, employee_code, username, full_name, phone, password_hash, email, department_id, work_area, position_title, hire_date, avatar_initial)
@@ -49,9 +51,11 @@ VALUES
   (3, 'EB003', 'levanc', 'Lê Văn C', '0903456789', 'pbkdf2_sha256$120000$EB003$oX0zYhPIvFGtNLqdw5pTARVaYoDRRccjBvxWQtF4alw', 'levanc@electricbird.vn', 3, 'Đồng Nai', 'Kỹ sư cơ điện', '2021-11-20', 'C'),
   (4, 'EB004', 'phamthid', 'Phạm Thị D', '0904567890', 'pbkdf2_sha256$120000$EB004$dp24lyDFc0CyKLULh5pf3M6SnfqHHc33WhNdmIFUaCE', 'phamthid@electricbird.vn', 5, 'Miền Bắc', 'Điều phối hiện trường', '2022-07-10', 'D'),
   (5, 'EB005', 'hoangvane', 'Hoàng Văn E', '0905678901', 'pbkdf2_sha256$120000$EB005$8DCHxlYzYO8UHscf2ZBeCtFjIZE6ITR69_h2RfNiGH0', 'hoangvane@electricbird.vn', 2, 'Bà Rịa Vũng Tàu', 'Trưởng phòng HSE', '2023-01-05', 'E'),
-  (6, 'ADMIN01', 'hradmin', 'HR Admin', '0911111111', 'pbkdf2_sha256$120000$ADMIN01$6XMYf5c3rLBtfe9Y61-jXLwPt700YMCkVWvCtuoiZzc', 'hradmin@electricbird.vn', 1, 'TPHCM', 'HR Admin', '2020-01-01', 'H'),
+  (6, 'MGR_HCNS', 'manager_hcns', 'Trưởng phòng HCNS', '0911111111', 'pbkdf2_sha256$120000$ADMIN01$6XMYf5c3rLBtfe9Y61-jXLwPt700YMCkVWvCtuoiZzc', 'manager_hcns@electricbird.vn', 1, 'TPHCM', 'Trưởng phòng HCNS', '2020-01-01', 'H'),
   (7, 'ADMIN', 'admin', 'Admin', 'admin', 'pbkdf2_sha256$120000$ADMIN$eZcR_X1M6YlPmsppvrEE28w5_ZZwBux8rojRNNE0BKQ', 'admin@electricbird.vn', 1, 'TPHCM', 'Admin', '2020-01-01', 'A')
 ON DUPLICATE KEY UPDATE
+  employee_code = VALUES(employee_code),
+  username = VALUES(username),
   full_name = VALUES(full_name),
   phone = VALUES(phone),
   password_hash = IF(password_hash = '', VALUES(password_hash), password_hash),
@@ -62,8 +66,10 @@ ON DUPLICATE KEY UPDATE
   hire_date = VALUES(hire_date),
   avatar_initial = VALUES(avatar_initial);
 
-INSERT IGNORE INTO employee_roles (employee_id, role_id) VALUES
-  (1,1),(2,1),(3,1),(4,1),(5,1),(5,2),(6,3),(6,6),(7,6);
+DELETE FROM employee_roles WHERE employee_id IN (1,2,3,4,5,6,7);
+
+INSERT INTO employee_roles (employee_id, role_id) VALUES
+  (1,1),(2,1),(3,1),(4,1),(5,2),(6,2),(7,6);
 
 INSERT INTO tests
   (id, code, title, department_id, description, question_count, duration_minutes, pass_score, created_by)

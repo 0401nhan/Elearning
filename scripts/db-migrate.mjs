@@ -180,6 +180,61 @@ async function ensureAttemptQuestionOptionsTable(connection) {
   console.log("Created table attempt_question_options.");
 }
 
+async function ensureThreeRoleModel(connection) {
+  await connection.query(`
+    INSERT INTO roles (id, code, name, description) VALUES
+      (1, 'employee', 'Nhân sự', 'Xem tài liệu, làm thử, làm chính thức, xem kết quả cá nhân'),
+      (2, 'department_manager', 'Trưởng phòng', 'Xem kết quả nhân sự thuộc phòng mình'),
+      (6, 'admin', 'Admin', 'Toàn quyền')
+    ON DUPLICATE KEY UPDATE
+      code = VALUES(code),
+      name = VALUES(name),
+      description = VALUES(description)
+  `);
+
+  await connection.query("DELETE FROM roles WHERE code NOT IN ('employee', 'department_manager', 'admin')");
+  await connection.query(`
+    DELETE rp
+    FROM role_permissions rp
+    JOIN roles r ON r.id = rp.role_id
+    WHERE r.code IN ('employee', 'department_manager', 'admin')
+  `);
+  await connection.query(`
+    INSERT INTO role_permissions (role_id, permission_id) VALUES
+      (1,1),(1,2),(1,3),(1,4),
+      (2,1),(2,2),(2,3),(2,4),(2,5),
+      (6,1),(6,2),(6,3),(6,4),(6,5),(6,6),(6,7),(6,8),(6,9),(6,10)
+  `);
+
+  await connection.query(`
+    DELETE employee_role
+    FROM employee_roles employee_role
+    JOIN roles employee ON employee.id = employee_role.role_id AND employee.code = 'employee'
+    JOIN employee_roles elevated_role ON elevated_role.employee_id = employee_role.employee_id
+    JOIN roles elevated ON elevated.id = elevated_role.role_id AND elevated.code IN ('department_manager', 'admin')
+  `);
+  await connection.query(`
+    DELETE manager_role
+    FROM employee_roles manager_role
+    JOIN roles manager ON manager.id = manager_role.role_id AND manager.code = 'department_manager'
+    JOIN employee_roles admin_role ON admin_role.employee_id = manager_role.employee_id
+    JOIN roles admin ON admin.id = admin_role.role_id AND admin.code = 'admin'
+  `);
+  await connection.query(`
+    INSERT IGNORE INTO employee_roles (employee_id, role_id)
+    SELECT e.id, employee_role.id
+    FROM employees e
+    JOIN roles employee_role ON employee_role.code = 'employee'
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM employee_roles existing_role
+      WHERE existing_role.employee_id = e.id
+    )
+  `);
+
+  console.log("Role model is limited to admin, department manager, and employee.");
+}
+
 async function backfillAttemptSnapshots(connection) {
   await connection.query(`
     UPDATE test_attempts attempt
@@ -251,6 +306,7 @@ async function migrate() {
       "is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0 AFTER option_text_snapshot"
     );
 
+    await ensureThreeRoleModel(connection);
     await backfillAttemptSnapshots(connection);
     console.log("Database migrations completed.");
   } finally {

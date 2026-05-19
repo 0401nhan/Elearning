@@ -2744,6 +2744,17 @@ dd {
   padding: 16px;
 }
 
+.practice-main-panel .practice-question-item:focus,
+.official-exam-page .question-box:focus {
+  outline: none;
+}
+
+.practice-main-panel .practice-question-item:focus-visible,
+.official-exam-page .question-box:focus-visible {
+  outline: 3px solid rgba(0, 80, 217, 0.25);
+  outline-offset: 4px;
+}
+
 .question-heading {
   display: flex;
   align-items: center;
@@ -3235,6 +3246,7 @@ dd {
 }
 
 .official-exam-page .question-box {
+  scroll-margin-top: 18px;
   border-color: #c8d9f5;
   background: #f9fcff;
 }

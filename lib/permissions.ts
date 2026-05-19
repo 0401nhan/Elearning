@@ -31,36 +31,29 @@ export function hasPermissionUser(user: PermissionAwareUser, permission: string)
 }
 
 export function canViewPeopleResultsUser(user: PermissionAwareUser) {
-  return isAdminUser(user) || isDepartmentManagerUser(user) || hasPermissionUser(user, PERMISSIONS.resultsDepartmentRead);
+  return isAdminUser(user) || isDepartmentManagerUser(user);
 }
 
 export function canReadAdminDashboardUser(user: PermissionAwareUser) {
-  return hasPermissionUser(user, PERMISSIONS.adminDashboardRead) || canViewPeopleResultsUser(user);
+  return isAdminUser(user) || isDepartmentManagerUser(user);
 }
 
 export function canManageAssignmentsUser(user: PermissionAwareUser) {
-  return hasPermissionUser(user, PERMISSIONS.assignmentsManage);
+  return isAdminUser(user);
 }
 
 export function canManageQuestionsUser(user: PermissionAwareUser) {
-  return hasPermissionUser(user, PERMISSIONS.questionsManage);
+  return isAdminUser(user);
 }
 
 export function canManageMaterialsUser(user: PermissionAwareUser) {
-  return hasPermissionUser(user, PERMISSIONS.materialsManage);
+  return isAdminUser(user);
 }
 
 export function canManageSystemUser(user: PermissionAwareUser) {
-  return hasPermissionUser(user, PERMISSIONS.systemManage);
+  return isAdminUser(user);
 }
 
 export function canAccessAdminUser(user: PermissionAwareUser) {
-  return (
-    canReadAdminDashboardUser(user) ||
-    canViewPeopleResultsUser(user) ||
-    canManageAssignmentsUser(user) ||
-    canManageQuestionsUser(user) ||
-    canManageMaterialsUser(user) ||
-    canManageSystemUser(user)
-  );
+  return isAdminUser(user) || isDepartmentManagerUser(user);
 }
