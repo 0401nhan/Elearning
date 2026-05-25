@@ -630,9 +630,6 @@ export function AdminDashboard({
                 <button onClick={() => setRefreshKey((value) => value + 1)}>
                   <RefreshCw size={17} /> Làm mới
                 </button>
-                <button className="primary-button">
-                  <Download size={17} /> Export Excel
-                </button>
               </section>
 
               <section className="panel admin-table-panel">

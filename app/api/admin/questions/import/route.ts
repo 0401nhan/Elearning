@@ -4,6 +4,7 @@ import type { PoolConnection } from "mysql2/promise";
 import { canManageQuestions, getCurrentUser } from "@/lib/auth";
 import { buildCsv } from "@/lib/csv";
 import { queryRows, withTransaction } from "@/lib/db";
+import { normalizeImageUrl } from "@/lib/question-images";
 
 type TestRow = RowDataPacket & {
   id: number;
@@ -20,9 +21,11 @@ type ExportQuestionRow = RowDataPacket & {
   difficulty: "easy" | "medium" | "hard";
   is_active: number;
   question_text: string;
+  question_image_url: string | null;
   explanation: string | null;
   option_label: string | null;
   option_text: string | null;
+  option_image_url: string | null;
   is_correct: number | null;
 };
 
@@ -36,10 +39,12 @@ type ImportQuestion = {
   difficulty: "easy" | "medium" | "hard";
   isActive: boolean;
   questionText: string;
+  questionImageUrl: string | null;
   explanation: string | null;
   options: {
     label: string;
     text: string;
+    imageUrl: string | null;
     isCorrect: boolean;
   }[];
 };
@@ -74,7 +79,12 @@ const CSV_HEADERS = [
   "option_b",
   "option_c",
   "option_d",
-  "correct_option"
+  "correct_option",
+  "question_image",
+  "option_a_image",
+  "option_b_image",
+  "option_c_image",
+  "option_d_image"
 ];
 
 function normalizeHeader(value: string) {
@@ -199,19 +209,36 @@ function validateCsvRows(parsed: CsvParseResult) {
   parsed.rows.forEach((row, index) => {
     const rowNumber = index + 2;
     const questionText = cleanText(row.question_text);
+    const questionImage = normalizeImageUrl(row.question_image, `Dòng ${rowNumber}: ảnh câu hỏi`);
     const difficulty = parseDifficulty(row.difficulty ?? "");
     const isActive = parseBoolean(row.is_active ?? "");
     const correctOption = String(row.correct_option ?? "").trim().toUpperCase();
     const options = OPTION_LABELS
-      .map((label) => ({
-        label,
-        text: String(row[`option_${label.toLowerCase()}`] ?? "").trim(),
-        isCorrect: label === correctOption
-      }))
-      .filter((option) => option.text);
+      .map((label) => {
+        const image = normalizeImageUrl(
+          row[`option_${label.toLowerCase()}_image`],
+          `Dòng ${rowNumber}: ảnh đáp án ${label}`
+        );
+
+        if (image.error) {
+          errors.push(image.error);
+        }
+
+        return {
+          label,
+          text: String(row[`option_${label.toLowerCase()}`] ?? "").trim(),
+          imageUrl: image.url,
+          isCorrect: label === correctOption
+        };
+      })
+      .filter((option) => option.text || option.imageUrl);
 
     if (!questionText) {
       errors.push(`Dòng ${rowNumber}: thiếu nội dung câu hỏi.`);
+    }
+
+    if (questionImage.error) {
+      errors.push(questionImage.error);
     }
 
     if (!difficulty) {
@@ -239,6 +266,7 @@ function validateCsvRows(parsed: CsvParseResult) {
         difficulty,
         isActive,
         questionText,
+        questionImageUrl: questionImage.url,
         explanation: cleanText(row.explanation),
         options
       });
@@ -259,8 +287,9 @@ function mapExportRows(rows: ExportQuestionRow[]) {
     difficulty: string;
     isActive: number;
     questionText: string;
+    questionImageUrl: string | null;
     explanation: string | null;
-    options: Map<string, { text: string; isCorrect: boolean }>;
+    options: Map<string, { text: string; imageUrl: string | null; isCorrect: boolean }>;
   }>();
 
   rows.forEach((row) => {
@@ -269,13 +298,15 @@ function mapExportRows(rows: ExportQuestionRow[]) {
       difficulty: row.difficulty,
       isActive: Number(row.is_active),
       questionText: row.question_text,
+      questionImageUrl: row.question_image_url,
       explanation: row.explanation,
-      options: new Map<string, { text: string; isCorrect: boolean }>()
+      options: new Map<string, { text: string; imageUrl: string | null; isCorrect: boolean }>()
     };
 
-    if (row.option_label && row.option_text) {
+    if (row.option_label) {
       question.options.set(row.option_label, {
-        text: row.option_text,
+        text: row.option_text ?? "",
+        imageUrl: row.option_image_url,
         isCorrect: Boolean(row.is_correct)
       });
     }
@@ -296,7 +327,12 @@ function mapExportRows(rows: ExportQuestionRow[]) {
       question.options.get("B")?.text ?? "",
       question.options.get("C")?.text ?? "",
       question.options.get("D")?.text ?? "",
-      correctOption
+      correctOption,
+      question.questionImageUrl,
+      question.options.get("A")?.imageUrl ?? "",
+      question.options.get("B")?.imageUrl ?? "",
+      question.options.get("C")?.imageUrl ?? "",
+      question.options.get("D")?.imageUrl ?? "",
     ];
   });
 }
@@ -327,9 +363,11 @@ export async function GET(request: Request) {
         q.difficulty,
         q.is_active,
         q.question_text,
+        q.image_url AS question_image_url,
         q.explanation,
         ao.option_label,
         ao.option_text,
+        ao.image_url AS option_image_url,
         ao.is_correct
       FROM questions q
       LEFT JOIN question_groups qg ON qg.id = q.group_id
@@ -497,13 +535,14 @@ export async function POST(request: Request) {
       const [questionResult] = await connection.query<ResultSetHeader>(
         `
         INSERT INTO questions
-          (test_id, group_id, question_text, explanation, difficulty, is_active, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+          (test_id, group_id, question_text, image_url, explanation, difficulty, is_active, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           testId,
           groupId,
           question.questionText,
+          question.questionImageUrl,
           question.explanation,
           question.difficulty,
           question.isActive ? 1 : 0,
@@ -514,7 +553,7 @@ export async function POST(request: Request) {
       await connection.query(
         `
         INSERT INTO answer_options
-          (question_id, option_label, option_text, is_correct, sort_order)
+          (question_id, option_label, option_text, image_url, is_correct, sort_order)
         VALUES ?
         `,
         [
@@ -522,6 +561,7 @@ export async function POST(request: Request) {
             questionResult.insertId,
             option.label,
             option.text,
+            option.imageUrl,
             option.isCorrect ? 1 : 0,
             optionIndex + 1
           ])

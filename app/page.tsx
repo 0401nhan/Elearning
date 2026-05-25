@@ -17,7 +17,7 @@ import { SystemSettingsPage } from "@/components/system-settings-page";
 import { TestDetail } from "@/components/test-detail";
 import { TestsPage } from "@/components/tests-page";
 import { canAccessAdminUser } from "@/lib/permissions";
-import { canStartOfficialAttempt, hasOfficialResult } from "@/lib/test-state";
+import { canStartOfficialAttempt, canStartPracticeAttempt, hasOfficialResult } from "@/lib/test-state";
 import type { AssignedTest, Screen, SessionUser, TestStatus, ThemeMode, UserAssignment, UserSummary } from "@/lib/types";
 
 const THEME_STORAGE_KEY = "eb-theme-mode";
@@ -64,6 +64,7 @@ function mapAssignmentToTest(assignment: UserAssignment, index: number): Assigne
     questions: assignment.question_count,
     minutes: assignment.duration_minutes,
     passScore: assignment.pass_score,
+    allowUnlimitedPractice: assignment.allow_unlimited_practice,
     dueAt: assignment.due_at,
     readProgress: Math.round(assignment.read_progress_percent),
     attempts: assignment.practice_attempt_count,
@@ -308,6 +309,13 @@ export default function Page() {
   }
 
   function openPractice(testId: number) {
+    const targetTest = assignedUserTests.find((item) => item.id === testId);
+    if (targetTest && !canStartPracticeAttempt(targetTest)) {
+      setSelectedTestId(testId);
+      setScreen("test");
+      return;
+    }
+
     setSelectedTestId(testId);
     setScreen("practice");
   }
@@ -384,6 +392,7 @@ export default function Page() {
         setScreen={setScreen}
         user={user}
         onLogout={handleLogout}
+        onOpenTest={openTest}
       >
         <HomeDashboard
           summary={summary}
@@ -404,6 +413,7 @@ export default function Page() {
       setScreen={setScreen}
       user={user}
       onLogout={handleLogout}
+      onOpenTest={openTest}
     >
       {screen === "home" && (
         <HomeDashboard
@@ -450,7 +460,7 @@ export default function Page() {
       )}
       {screen === "results" && <ResultsPage onReview={() => setScreen("practice")} />}
       {screen === "profile" && <ProfilePage user={user} onUserUpdate={setUser} />}
-      {screen === "notifications" && <NotificationsPage />}
+      {screen === "notifications" && <NotificationsPage onOpenTest={openTest} />}
       {screen === "settings" && <SystemSettingsPage theme={theme} onThemeChange={setTheme} />}
       {screen === "support" && <SupportPage />}
       {screen === "official" && selectedTest && (

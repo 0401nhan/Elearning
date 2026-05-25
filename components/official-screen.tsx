@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Flag,
   Home,
   ListChecks,
   RefreshCw,
@@ -14,17 +15,20 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canStartOfficialAttempt, isOfficialLocked, isOfficialPassed, officialResultLabel } from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
+import { QuestionMedia } from "./question-media";
 import { InfoTable } from "./shared";
 
 type AnswerOption = {
   id: number;
   option_label: string;
   option_text: string;
+  image_url: string | null;
 };
 
 type OfficialQuestion = {
   id: number;
   question_text: string;
+  image_url: string | null;
   answers: AnswerOption[];
 };
 
@@ -102,6 +106,7 @@ export function OfficialScreen({
 }) {
   const [detail, setDetail] = useState<OfficialDetail | null>(null);
   const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [flaggedQuestions, setFlaggedQuestions] = useState<Record<number, boolean>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(test.minutes * 60);
   const [result, setResult] = useState<AttemptResult | null>(null);
@@ -133,7 +138,12 @@ export function OfficialScreen({
 
   const questions = useMemo(() => detail?.questions ?? [], [detail]);
   const activeQuestion = questions[currentIndex];
+  const activeIsFlagged = Boolean(activeQuestion && flaggedQuestions[activeQuestion.id]);
   const answeredCount = useMemo(() => questions.filter((question) => answers[question.id]).length, [answers, questions]);
+  const flaggedCount = useMemo(
+    () => questions.filter((question) => flaggedQuestions[question.id]).length,
+    [flaggedQuestions, questions]
+  );
   const unansweredCount = Math.max(0, questions.length - answeredCount);
   const progressPercent = questions.length ? Math.round((answeredCount / questions.length) * 100) : 0;
   const durationSeconds = (detail?.test.duration_minutes ?? test.minutes) * 60;
@@ -202,6 +212,7 @@ export function OfficialScreen({
       );
       setCurrentIndex(0);
       setResult(null);
+      setFlaggedQuestions({});
       setDraftSaveState("idle");
       setLastSavedAt("");
       setAnswerPulse(null);
@@ -391,6 +402,31 @@ export function OfficialScreen({
         setError("Không thể lưu nháp đáp án.");
       });
   }, [detail?.attempt.id]);
+
+  function toggleQuestionFlag(questionId: number) {
+    setFlaggedQuestions((current) => ({
+      ...current,
+      [questionId]: !current[questionId]
+    }));
+  }
+
+  function getJumpClassName(question: OfficialQuestion, index: number) {
+    const classes = [];
+
+    if (index === currentIndex) {
+      classes.push("current");
+    }
+
+    if (answers[question.id]) {
+      classes.push("answered");
+    }
+
+    if (flaggedQuestions[question.id]) {
+      classes.push("flagged");
+    }
+
+    return classes.join(" ");
+  }
 
   useEffect(() => {
     if (!activeQuestion || result || noOfficialAttempts || isSubmitting) {
@@ -605,9 +641,23 @@ export function OfficialScreen({
                 className="question-box official-question-box question-card-enter"
                 tabIndex={-1}
               >
-                <h3>
-                  Câu {currentIndex + 1}. {activeQuestion.question_text}
-                </h3>
+                <div className="official-question-heading">
+                  <h3>
+                    Câu {currentIndex + 1}. {activeQuestion.question_text}
+                  </h3>
+                  <button
+                    type="button"
+                    className={`flag-button ${activeIsFlagged ? "active" : ""}`}
+                    onClick={() => toggleQuestionFlag(activeQuestion.id)}
+                  >
+                    <Flag size={15} /> {activeIsFlagged ? "Đã đánh dấu" : "Đánh dấu"}
+                  </button>
+                </div>
+                <QuestionMedia
+                  src={activeQuestion.image_url}
+                  alt={`Ảnh câu hỏi ${currentIndex + 1}`}
+                  variant="question"
+                />
                 {activeQuestion.answers.map((answer) => (
                   <label
                     key={answer.id}
@@ -623,8 +673,14 @@ export function OfficialScreen({
                       checked={answers[activeQuestion.id] === answer.id}
                       onChange={() => selectOfficialAnswer(activeQuestion.id, answer.id)}
                     />
-                    <span>
-                      {answer.option_label}. {answer.option_text}
+                    <span className="answer-choice-content">
+                      <b>{answer.option_label}.</b>
+                      {answer.option_text && <span>{answer.option_text}</span>}
+                      <QuestionMedia
+                        src={answer.image_url}
+                        alt={`Ảnh đáp án ${answer.option_label}`}
+                        variant="answer"
+                      />
                     </span>
                   </label>
                 ))}
@@ -663,18 +719,26 @@ export function OfficialScreen({
         <aside className="official-sidebar">
           <section className="official-sidebar-card">
             <h3>Danh sách câu hỏi</h3>
-            <p>Chọn số câu để chuyển nhanh khi đang làm bài.</p>
+            <p>Chọn số câu để chuyển nhanh khi đang làm bài. Đánh dấu câu còn phân vân để quay lại.</p>
             <div className="question-jump-grid official-jumps">
               {questions.map((question, index) => (
                 <button
                   key={question.id}
                   type="button"
-                  className={`${index === currentIndex ? "current" : ""} ${answers[question.id] ? "answered" : ""}`}
+                  className={getJumpClassName(question, index)}
                   onClick={() => goToQuestion(index)}
                 >
                   {index + 1}
                 </button>
               ))}
+            </div>
+            <div className="question-jump-legend">
+              <span>
+                <i className="legend-done" /> Đã trả lời
+              </span>
+              <span>
+                <i className="legend-flag" /> Đánh dấu {flaggedCount ? `(${flaggedCount})` : ""}
+              </span>
             </div>
           </section>
 

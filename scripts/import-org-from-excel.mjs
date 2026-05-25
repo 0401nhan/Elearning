@@ -425,7 +425,7 @@ async function fetchExistingTableNames(connection) {
   return new Set(rows.map((row) => row.tableName));
 }
 
-async function ensureThreeRoleModel(connection) {
+async function ensureBaselineRoles(connection) {
   for (const [code, name, description] of ROLE_DEFINITIONS) {
     await connection.execute(
       `
@@ -450,13 +450,6 @@ async function ensureThreeRoleModel(connection) {
     );
   }
 
-  await connection.execute(
-    `
-    DELETE FROM role_permissions
-    WHERE role_id IN (SELECT id FROM roles WHERE code IN ('employee', 'department_manager', 'admin'))
-    `
-  );
-
   for (const [roleCode, permissionCodes] of Object.entries(ROLE_PERMISSIONS)) {
     for (const permissionCode of permissionCodes) {
       await connection.execute(
@@ -472,8 +465,6 @@ async function ensureThreeRoleModel(connection) {
       );
     }
   }
-
-  await connection.execute("DELETE FROM roles WHERE code NOT IN ('employee', 'department_manager', 'admin')");
 }
 
 async function clearOldData(connection, existingTables) {
@@ -706,7 +697,7 @@ async function main() {
     await connection.beginTransaction();
 
     const existingTables = await fetchExistingTableNames(connection);
-    await ensureThreeRoleModel(connection);
+    await ensureBaselineRoles(connection);
     await clearOldData(connection, existingTables);
     const systemDepartmentId = await ensureSystemDepartment(connection);
     await ensureAdminAccount(connection, systemDepartmentId);

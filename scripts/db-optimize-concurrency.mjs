@@ -141,6 +141,7 @@ async function ensureAttemptQuestionOptionsTable(connection) {
       option_order INT NOT NULL,
       option_label_snapshot CHAR(1) NULL,
       option_text_snapshot TEXT NULL,
+      option_image_url_snapshot VARCHAR(500) NULL,
       is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0,
       PRIMARY KEY (id),
       UNIQUE KEY uq_attempt_question_options_order (attempt_id, question_id, option_order),

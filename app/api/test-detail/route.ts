@@ -41,6 +41,7 @@ type QuestionRow = RowDataPacket & {
   id: number;
   group_name: string | null;
   question_text: string;
+  image_url: string | null;
   explanation: string | null;
   difficulty: string;
 };
@@ -50,12 +51,17 @@ type AnswerRow = RowDataPacket & {
   question_id: number;
   option_label: string;
   option_text: string;
+  image_url: string | null;
   is_correct: number;
 };
 
 function getQuestionLimit(value: number | string | null | undefined) {
   const questionCount = Math.floor(Number(value));
   return Number.isFinite(questionCount) ? Math.max(1, questionCount) : 1;
+}
+
+function getDisplayOptionLabel(index: number) {
+  return String.fromCharCode(65 + index);
 }
 
 export async function GET(request: Request) {
@@ -67,6 +73,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const testId = Number(searchParams.get("testId") ?? 1);
   const mode = searchParams.get("mode") === "official" ? "official" : "practice";
+  const isStartingPractice = searchParams.get("startPractice") === "1";
 
   const tests = await queryRows<TestRow[]>(
     `
@@ -136,6 +143,17 @@ export async function GET(request: Request) {
     );
   }
 
+  if (
+    isStartingPractice &&
+    !Boolean(test.allow_unlimited_practice) &&
+    Number(test.practice_attempt_count ?? 0) > 0
+  ) {
+    return NextResponse.json(
+      { error: "Bài test này chỉ cho phép làm thử 1 lần." },
+      { status: 409 }
+    );
+  }
+
   const [materials, questions] = await Promise.all([
     queryRows<MaterialRow[]>(
       `
@@ -157,7 +175,7 @@ export async function GET(request: Request) {
     ),
     queryRows<QuestionRow[]>(
       `
-      SELECT q.id, qg.name AS group_name, q.question_text, q.explanation, q.difficulty
+      SELECT q.id, qg.name AS group_name, q.question_text, q.image_url, q.explanation, q.difficulty
       FROM questions q
       LEFT JOIN question_groups qg ON qg.id = q.group_id
       WHERE q.test_id = ? AND q.is_active = 1
@@ -172,7 +190,7 @@ export async function GET(request: Request) {
   const answers = questionIds.length
     ? await queryRows<AnswerRow[]>(
         `
-        SELECT ao.id, ao.question_id, ao.option_label, ao.option_text, ao.is_correct
+        SELECT ao.id, ao.question_id, ao.option_label, ao.option_text, ao.image_url, ao.is_correct
         FROM answer_options ao
         JOIN questions q ON q.id = ao.question_id
         WHERE q.id IN (?)
@@ -196,7 +214,7 @@ export async function GET(request: Request) {
       randomize_questions: Boolean(test.randomize_questions),
       randomize_answers: Boolean(test.randomize_answers),
       show_practice_answers: Boolean(test.show_practice_answers),
-      show_official_answers: false
+      show_official_answers: Boolean(test.show_official_answers)
     },
     materials: materials.map((material) => ({
       ...material,
@@ -207,8 +225,9 @@ export async function GET(request: Request) {
       explanation: shouldRevealAnswers ? question.explanation : null,
       answers: answers
         .filter((answer) => answer.question_id === question.id)
-        .map((answer) => ({
+        .map((answer, index) => ({
           ...answer,
+          option_label: getDisplayOptionLabel(index),
           is_correct: shouldRevealAnswers ? Boolean(answer.is_correct) : undefined
         }))
     }))

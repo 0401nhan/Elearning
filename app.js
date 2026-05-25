@@ -323,6 +323,7 @@ async function ensureAttemptQuestionOptionsTable(connection) {
       option_order INT NOT NULL,
       option_label_snapshot CHAR(1) NULL,
       option_text_snapshot TEXT NULL,
+      option_image_url_snapshot VARCHAR(500) NULL,
       is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0,
       PRIMARY KEY (id),
       UNIQUE KEY uq_attempt_question_options_order (attempt_id, question_id, option_order),
@@ -335,7 +336,7 @@ async function ensureAttemptQuestionOptionsTable(connection) {
   console.log("[startup] Created table attempt_question_options.");
 }
 
-async function ensureThreeRoleModel(connection) {
+async function ensureBaselineRoles(connection) {
   await connection.query(`
     INSERT INTO roles (id, code, name, description) VALUES
       (1, 'employee', 'Nhân sự', 'Xem tài liệu, làm thử, làm chính thức, xem kết quả cá nhân'),
@@ -347,34 +348,13 @@ async function ensureThreeRoleModel(connection) {
       description = VALUES(description)
   `);
 
-  await connection.query("DELETE FROM roles WHERE code NOT IN ('employee', 'department_manager', 'admin')");
   await connection.query(`
-    DELETE rp
-    FROM role_permissions rp
-    JOIN roles r ON r.id = rp.role_id
-    WHERE r.code IN ('employee', 'department_manager', 'admin')
-  `);
-  await connection.query(`
-    INSERT INTO role_permissions (role_id, permission_id) VALUES
+    INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES
       (1,1),(1,2),(1,3),(1,4),
       (2,1),(2,2),(2,3),(2,4),(2,5),
       (6,1),(6,2),(6,3),(6,4),(6,5),(6,6),(6,7),(6,8),(6,9),(6,10)
   `);
 
-  await connection.query(`
-    DELETE employee_role
-    FROM employee_roles employee_role
-    JOIN roles employee ON employee.id = employee_role.role_id AND employee.code = 'employee'
-    JOIN employee_roles elevated_role ON elevated_role.employee_id = employee_role.employee_id
-    JOIN roles elevated ON elevated.id = elevated_role.role_id AND elevated.code IN ('department_manager', 'admin')
-  `);
-  await connection.query(`
-    DELETE manager_role
-    FROM employee_roles manager_role
-    JOIN roles manager ON manager.id = manager_role.role_id AND manager.code = 'department_manager'
-    JOIN employee_roles admin_role ON admin_role.employee_id = manager_role.employee_id
-    JOIN roles admin ON admin.id = admin_role.role_id AND admin.code = 'admin'
-  `);
   await connection.query(`
     INSERT IGNORE INTO employee_roles (employee_id, role_id)
     SELECT e.id, employee_role.id
@@ -387,7 +367,7 @@ async function ensureThreeRoleModel(connection) {
     )
   `);
 
-  console.log("[startup] Role model is limited to admin, department manager, and employee.");
+  console.log("[startup] Baseline roles and permissions are present; existing custom roles are preserved.");
 }
 
 async function backfillAttemptSnapshots(connection) {
@@ -405,12 +385,14 @@ async function backfillAttemptSnapshots(connection) {
     LEFT JOIN question_groups qg ON qg.id = q.group_id
     SET
       aq.question_text_snapshot = COALESCE(aq.question_text_snapshot, q.question_text),
+      aq.image_url_snapshot = COALESCE(aq.image_url_snapshot, q.image_url),
       aq.explanation_snapshot = COALESCE(aq.explanation_snapshot, q.explanation),
       aq.difficulty_snapshot = COALESCE(aq.difficulty_snapshot, q.difficulty),
       aq.group_name_snapshot = COALESCE(aq.group_name_snapshot, qg.name)
     WHERE q.id IS NOT NULL
       AND (
         aq.question_text_snapshot IS NULL
+        OR (q.image_url IS NOT NULL AND aq.image_url_snapshot IS NULL)
         OR aq.difficulty_snapshot IS NULL
       )
   `);
@@ -421,11 +403,13 @@ async function backfillAttemptSnapshots(connection) {
     SET
       aqo.option_label_snapshot = COALESCE(aqo.option_label_snapshot, ao.option_label),
       aqo.option_text_snapshot = COALESCE(aqo.option_text_snapshot, ao.option_text),
+      aqo.option_image_url_snapshot = COALESCE(aqo.option_image_url_snapshot, ao.image_url),
       aqo.is_correct_snapshot = ao.is_correct
     WHERE ao.id IS NOT NULL
       AND (
         aqo.option_label_snapshot IS NULL
         OR aqo.option_text_snapshot IS NULL
+        OR (ao.image_url IS NOT NULL AND aqo.option_image_url_snapshot IS NULL)
         OR aqo.is_correct_snapshot <> ao.is_correct
       )
   `);
@@ -439,6 +423,8 @@ async function runStartupMigrations(connection) {
 
   console.log("[startup] Applying database migrations...");
   await ensureNotificationReadsTable(connection);
+  await addColumnIfMissing(connection, "questions", "image_url", "image_url VARCHAR(500) NULL AFTER question_text");
+  await addColumnIfMissing(connection, "answer_options", "image_url", "image_url VARCHAR(500) NULL AFTER option_text");
   await addColumnIfMissing(connection, "test_attempts", "pass_score_snapshot", "pass_score_snapshot DECIMAL(5,2) NULL AFTER score");
   await ensureAttemptQuestionOptionsTable(connection);
 
@@ -449,6 +435,7 @@ async function runStartupMigrations(connection) {
   await dropForeignKeyIfExists(connection, "attempt_answers", "fk_attempt_answers_option");
 
   await addColumnIfMissing(connection, "attempt_questions", "question_text_snapshot", "question_text_snapshot TEXT NULL AFTER question_order");
+  await addColumnIfMissing(connection, "attempt_questions", "image_url_snapshot", "image_url_snapshot VARCHAR(500) NULL AFTER question_text_snapshot");
   await addColumnIfMissing(connection, "attempt_questions", "explanation_snapshot", "explanation_snapshot TEXT NULL AFTER question_text_snapshot");
   await addColumnIfMissing(connection, "attempt_questions", "difficulty_snapshot", "difficulty_snapshot VARCHAR(20) NULL AFTER explanation_snapshot");
   await addColumnIfMissing(connection, "attempt_questions", "group_name_snapshot", "group_name_snapshot VARCHAR(180) NULL AFTER difficulty_snapshot");
@@ -457,11 +444,17 @@ async function runStartupMigrations(connection) {
   await addColumnIfMissing(
     connection,
     "attempt_question_options",
+    "option_image_url_snapshot",
+    "option_image_url_snapshot VARCHAR(500) NULL AFTER option_text_snapshot"
+  );
+  await addColumnIfMissing(
+    connection,
+    "attempt_question_options",
     "is_correct_snapshot",
-    "is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0 AFTER option_text_snapshot"
+    "is_correct_snapshot TINYINT(1) NOT NULL DEFAULT 0 AFTER option_image_url_snapshot"
   );
 
-  await ensureThreeRoleModel(connection);
+  await ensureBaselineRoles(connection);
   await backfillAttemptSnapshots(connection);
   console.log("[startup] Database migrations are up to date.");
 }
@@ -495,6 +488,7 @@ async function ensureDatabase() {
 
   const { connection: connectionConfig, databaseName } = getDatabaseConfig();
   const connection = await mysql.createConnection(connectionConfig);
+  let createdDatabase = false;
 
   try {
     const exists = await databaseExists(connection, databaseName);
@@ -505,6 +499,7 @@ async function ensureDatabase() {
       } catch (error) {
         throw formatDatabaseAccessError(error, databaseName);
       }
+      createdDatabase = true;
     }
   } finally {
     await connection.end();
@@ -523,6 +518,12 @@ async function ensureDatabase() {
   try {
     const tableNames = await getTableNames(databaseConnection, databaseName);
     if (tableNames.size === 0) {
+      if (!createdDatabase) {
+        throw new Error(
+          `Database "${databaseName}" exists but is empty. Automatic schema and seed initialization only runs when the database is missing. Run "npm run db:init" manually if this database should be initialized.`
+        );
+      }
+
       console.log(`[startup] Database "${databaseName}" is empty. Initializing schema and seed data...`);
       await runSqlFile(databaseConnection, "schema.sql", databaseName, true);
       await runSqlFile(databaseConnection, "seed.sql", databaseName, true);

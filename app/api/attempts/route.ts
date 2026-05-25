@@ -14,8 +14,10 @@ type AssignmentLockRow = RowDataPacket & {
   test_id: number;
   question_count: number;
   pass_score: string | number;
+  allow_unlimited_practice: number;
   max_official_attempts: number;
   approved_retake_count: number;
+  practice_attempt_count: number;
   official_attempts_used: number;
   official_score: string | number | null;
   status: string;
@@ -414,8 +416,10 @@ export async function POST(request: Request) {
         ta.test_id,
         t.question_count,
         t.pass_score,
+        t.allow_unlimited_practice,
         t.max_official_attempts,
         COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
+        ta.practice_attempt_count,
         ta.official_attempts_used,
         ta.official_score,
         ta.status,
@@ -441,6 +445,14 @@ export async function POST(request: Request) {
 
     if (assignment.test_status !== "active") {
       return { status: 409 as const, body: { error: "Bài test đã được lưu trữ, không thể nộp bài." } };
+    }
+
+    if (
+      mode === "practice" &&
+      !Boolean(assignment.allow_unlimited_practice) &&
+      Number(assignment.practice_attempt_count ?? 0) > 0
+    ) {
+      return { status: 409 as const, body: { error: "Bài test này chỉ cho phép làm thử 1 lần." } };
     }
 
     if (mode === "official" && assignment.status === "passed") {

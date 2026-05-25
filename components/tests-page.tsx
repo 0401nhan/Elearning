@@ -1,6 +1,12 @@
 import { BookOpen, CheckCircle2, ClipboardCheck, Eye, Pencil, RefreshCw, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { isOfficialLocked, isOfficialPassed, officialResultLabel, officialResultTone } from "@/lib/test-state";
+import {
+  canStartPracticeAttempt,
+  isOfficialLocked,
+  isOfficialPassed,
+  officialResultLabel,
+  officialResultTone
+} from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
 import { StatusPill } from "./shared";
 
@@ -81,6 +87,7 @@ export function TestsPage({
           const officialButtonClass = officialDone && officialPassed ? `official-result-button ${officialTone}` : "primary-button";
           const isRequestingRetake = retakeActionTestId === test.id;
           const pendingRetakeRequestExists = hasPendingRetakeRequest(test);
+          const canStartPractice = canStartPracticeAttempt(test);
 
           return (
             <article className={`test-board-card ${officialDone ? `official-${officialTone}` : ""}`} key={test.id}>
@@ -117,8 +124,8 @@ export function TestsPage({
                 <button className="outline-button" onClick={() => onOpenTest(test.id)}>
                   <Eye size={16} /> Chi tiết
                 </button>
-                <button className="warm-button" onClick={() => onPractice(test.id)}>
-                  <Pencil size={16} /> Làm thử
+                <button className="warm-button" onClick={() => onPractice(test.id)} disabled={!canStartPractice}>
+                  <Pencil size={16} /> {canStartPractice ? "Làm thử" : "Hết lượt làm thử"}
                 </button>
                 {officialDone && !officialPassed ? (
                   <button

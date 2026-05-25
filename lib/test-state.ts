@@ -2,6 +2,8 @@ type OfficialResultInput = {
   status?: string | null;
   officialScore?: number | null;
   passScore?: number | null;
+  attempts?: number | null;
+  allowUnlimitedPractice?: boolean | null;
   officialAttemptsUsed?: number | null;
   maxOfficialAttempts?: number | null;
   official_attempts_used?: number | null;
@@ -48,6 +50,11 @@ export function canStartOfficialAttempt(test: OfficialResultInput) {
   }
 
   return !hasOfficialResult(test);
+}
+
+export function canStartPracticeAttempt(test: OfficialResultInput) {
+  const attempts = getAttemptNumber(test.attempts);
+  return test.allowUnlimitedPractice !== false || attempts === null || attempts === 0;
 }
 
 export function isOfficialLocked(test: OfficialResultInput) {

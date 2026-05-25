@@ -13,8 +13,15 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { isOfficialLocked, isOfficialPassed, officialResultLabel, officialResultTone } from "@/lib/test-state";
+import {
+  canStartPracticeAttempt,
+  isOfficialLocked,
+  isOfficialPassed,
+  officialResultLabel,
+  officialResultTone
+} from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
+import { MaterialFilePreview } from "./material-file-preview";
 import { FeatureLine, InfoTable } from "./shared";
 
 type DetailTest = {
@@ -109,6 +116,10 @@ export function TestDetail({
   const officialPassed = isOfficialPassed(officialState);
   const officialTone = officialResultTone(officialState);
   const passScore = activeTest?.pass_score ?? test.passScore;
+  const canStartPractice = canStartPracticeAttempt({
+    attempts: activeTest?.practice_attempt_count ?? test.attempts,
+    allowUnlimitedPractice: activeTest?.allow_unlimited_practice ?? test.allowUnlimitedPractice
+  });
 
   async function loadDetail() {
     setIsLoading(true);
@@ -136,10 +147,16 @@ export function TestDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [test.id]);
 
-  async function markMaterialRead(material: DetailMaterial) {
+  async function markMaterialRead(material: DetailMaterial, showSuccess = true) {
+    if (material.read_progress_percent >= 100) {
+      return;
+    }
+
     setIsSaving(true);
     setError("");
-    setSuccess("");
+    if (showSuccess) {
+      setSuccess("");
+    }
 
     const response = await fetch("/api/materials", {
       method: "POST",
@@ -157,8 +174,19 @@ export function TestDetail({
       return;
     }
 
-    setSuccess("Đã cập nhật tiến độ đọc tài liệu.");
+    if (showSuccess) {
+      setSuccess("Đã cập nhật tiến độ đọc tài liệu.");
+    }
     await Promise.all([loadDetail(), onRefreshAssignments()]);
+  }
+
+  function viewMaterial(material: DetailMaterial) {
+    setSelectedMaterial(material);
+    void markMaterialRead(material, false);
+  }
+
+  function openMaterialFile(material: DetailMaterial) {
+    void markMaterialRead(material, false);
   }
 
   return (
@@ -243,13 +271,16 @@ export function TestDetail({
                 </span>
               </div>
               <div className="row-actions">
-                <button className="outline-button" onClick={() => setSelectedMaterial(material)}>
+                <button className="outline-button" onClick={() => viewMaterial(material)}>
                   <BookOpen size={16} /> Xem
                 </button>
                 {material.content_url && (
-                  <a className="outline-button" href={material.content_url} target="_blank" rel="noreferrer">
+                  <button
+                    className="outline-button"
+                    onClick={() => viewMaterial(material)}
+                  >
                     <Download size={16} /> Mở file
-                  </a>
+                  </button>
                 )}
                 <button className="primary-button" onClick={() => markMaterialRead(material)} disabled={isSaving || material.read_progress_percent >= 100}>
                   <CheckCircle2 size={16} /> Đã đọc
@@ -275,11 +306,11 @@ export function TestDetail({
       </section>
 
       <div className="detail-actions">
-        <button className="outline-button" onClick={() => materials[0] && setSelectedMaterial(materials[0])} disabled={!materials.length}>
+        <button className="outline-button" onClick={() => materials[0] && viewMaterial(materials[0])} disabled={!materials.length}>
           <BookOpen size={18} /> Xem tài liệu
         </button>
-        <button className="warm-button" onClick={onPractice}>
-          <Pencil size={18} /> Làm thử
+        <button className="warm-button" onClick={onPractice} disabled={!canStartPractice}>
+          <Pencil size={18} /> {canStartPractice ? "Làm thử" : "Hết lượt làm thử"}
         </button>
         <button
           className={officialDone ? `official-result-button ${officialTone}` : "primary-button"}
@@ -306,13 +337,12 @@ export function TestDetail({
             {selectedMaterial.content_text ? (
               <div className="material-text-preview">{selectedMaterial.content_text}</div>
             ) : selectedMaterial.content_url ? (
-              <div className="material-link-preview">
-                <FileText size={34} />
-                <strong>{selectedMaterial.title}</strong>
-                <a className="primary-button" href={selectedMaterial.content_url} target="_blank" rel="noreferrer">
-                  <Download size={16} /> Mở tài liệu
-                </a>
-              </div>
+              <MaterialFilePreview
+                title={selectedMaterial.title}
+                url={selectedMaterial.content_url}
+                materialType={selectedMaterial.material_type}
+                onOpen={() => openMaterialFile(selectedMaterial)}
+              />
             ) : (
               <p>Tài liệu này chưa có nội dung đính kèm.</p>
             )}
@@ -333,7 +363,11 @@ export function TestDetail({
 
 function RuleList({ test }: { test: DetailTest | undefined }) {
   const rules = [
-    ["Làm thử", test?.allow_unlimited_practice ? "Không giới hạn" : "Theo cấu hình", "ok"],
+    [
+      "Làm thử",
+      test ? (test.allow_unlimited_practice ? "Không giới hạn" : "1 lần") : "--",
+      test?.allow_unlimited_practice ? "ok" : "info"
+    ],
     ["Làm chính thức", `${test?.max_official_attempts ?? 1} lần`, "info"],
     ["Random câu hỏi", test?.randomize_questions ? "Có" : "Không", test?.randomize_questions ? "ok" : "info"],
     ["Random đáp án", test?.randomize_answers ? "Có" : "Không", test?.randomize_answers ? "ok" : "info"],

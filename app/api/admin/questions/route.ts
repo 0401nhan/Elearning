@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { canManageQuestions, getCurrentUser } from "@/lib/auth";
 import { queryRows, withTransaction } from "@/lib/db";
+import { normalizeImageUrl } from "@/lib/question-images";
 
 type QuestionRow = RowDataPacket & {
   id: number;
@@ -10,6 +11,7 @@ type QuestionRow = RowDataPacket & {
   group_id: number | null;
   group_name: string | null;
   question_text: string;
+  question_image_url: string | null;
   explanation: string | null;
   difficulty: string;
   is_active: number;
@@ -17,6 +19,7 @@ type QuestionRow = RowDataPacket & {
   option_id: number | null;
   option_label: string | null;
   option_text: string | null;
+  option_image_url: string | null;
   is_correct: number | null;
 };
 
@@ -51,6 +54,7 @@ type SummaryRow = RowDataPacket & {
 type ParsedOption = {
   label: string;
   text: string;
+  imageUrl: string | null;
   isCorrect: boolean;
 };
 
@@ -78,28 +82,38 @@ function getDifficulty(value: unknown) {
 
 function parseOptions(value: unknown) {
   if (!Array.isArray(value)) {
-    return [];
+    return { options: [] as ParsedOption[], errors: [] as string[] };
   }
 
   const options = new Map<string, ParsedOption>();
+  const errors: string[] = [];
 
   value.forEach((item, index) => {
     const fallbackLabel = String.fromCharCode(65 + index);
     const label = String(item?.label ?? fallbackLabel).trim().toUpperCase().slice(0, 1);
     const text = String(item?.text ?? "").trim();
+    const image = normalizeImageUrl(item?.imageUrl, `Ảnh đáp án ${label || fallbackLabel}`);
 
-    if (!label || !text) {
+    if (image.error) {
+      errors.push(image.error);
+    }
+
+    if (!label || (!text && !image.url)) {
       return;
     }
 
     options.set(label, {
       label,
       text,
+      imageUrl: image.url,
       isCorrect: Boolean(item?.isCorrect)
     });
   });
 
-  return [...options.values()].sort((left, right) => left.label.localeCompare(right.label));
+  return {
+    options: [...options.values()].sort((left, right) => left.label.localeCompare(right.label)),
+    errors
+  };
 }
 
 function validateOptions(options: ParsedOption[]) {
@@ -125,6 +139,7 @@ function mapQuestions(rows: QuestionRow[]) {
           groupId: row.group_id,
           groupName: row.group_name,
           questionText: row.question_text,
+          imageUrl: row.question_image_url,
           explanation: row.explanation,
           difficulty: row.difficulty,
           isActive: Boolean(row.is_active),
@@ -133,15 +148,17 @@ function mapQuestions(rows: QuestionRow[]) {
             id: number;
             label: string;
             text: string;
+            imageUrl: string | null;
             isCorrect: boolean;
           }[]
         };
 
-        if (row.option_id && row.option_label && row.option_text) {
+        if (row.option_id && row.option_label) {
           question.options.push({
             id: row.option_id,
             label: row.option_label,
-            text: row.option_text,
+            text: row.option_text ?? "",
+            imageUrl: row.option_image_url,
             isCorrect: Boolean(row.is_correct)
           });
         }
@@ -155,6 +172,7 @@ function mapQuestions(rows: QuestionRow[]) {
         groupId: number | null;
         groupName: string | null;
         questionText: string;
+        imageUrl: string | null;
         explanation: string | null;
         difficulty: string;
         isActive: boolean;
@@ -163,6 +181,7 @@ function mapQuestions(rows: QuestionRow[]) {
           id: number;
           label: string;
           text: string;
+          imageUrl: string | null;
           isCorrect: boolean;
         }[];
       }>())
@@ -301,6 +320,7 @@ export async function GET(request: Request) {
           q.group_id,
           qg.name AS group_name,
           q.question_text,
+          q.image_url AS question_image_url,
           q.explanation,
           q.difficulty,
           q.is_active,
@@ -308,6 +328,7 @@ export async function GET(request: Request) {
           ao.id AS option_id,
           ao.option_label,
           ao.option_text,
+          ao.image_url AS option_image_url,
           ao.is_correct
         FROM questions q
         JOIN tests t ON t.id = q.test_id
@@ -364,10 +385,12 @@ export async function POST(request: Request) {
   const testId = Number(body?.testId);
   const groupId = Number(body?.groupId) > 0 ? Number(body?.groupId) : null;
   const questionText = String(body?.questionText ?? "").trim();
+  const questionImage = normalizeImageUrl(body?.questionImageUrl, "Ảnh câu hỏi");
   const explanation = cleanText(body?.explanation);
   const difficulty = getDifficulty(body?.difficulty);
   const isActive = body?.isActive === undefined ? true : Boolean(body.isActive);
-  const options = parseOptions(body?.options);
+  const parsedOptions = parseOptions(body?.options);
+  const options = parsedOptions.options;
   const optionError = validateOptions(options);
 
   if (!testId || !questionText) {
@@ -378,21 +401,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: optionError }, { status: 400 });
   }
 
+  if (questionImage.error || parsedOptions.errors.length) {
+    return NextResponse.json({ error: questionImage.error ?? parsedOptions.errors[0] }, { status: 400 });
+  }
+
   const questionId = await withTransaction(async (connection) => {
     const [questionResult] = await connection.execute<ResultSetHeader>(
       `
       INSERT INTO questions
-        (test_id, group_id, question_text, explanation, difficulty, is_active, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (test_id, group_id, question_text, image_url, explanation, difficulty, is_active, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
-      [testId, groupId, questionText, explanation, difficulty, isActive ? 1 : 0, currentUser.id]
+      [testId, groupId, questionText, questionImage.url, explanation, difficulty, isActive ? 1 : 0, currentUser.id]
     );
 
-    await connection.query("INSERT INTO answer_options (question_id, option_label, option_text, is_correct, sort_order) VALUES ?", [
+    await connection.query("INSERT INTO answer_options (question_id, option_label, option_text, image_url, is_correct, sort_order) VALUES ?", [
       options.map((option, index) => [
         questionResult.insertId,
         option.label,
         option.text,
+        option.imageUrl,
         option.isCorrect ? 1 : 0,
         index + 1
       ])

@@ -1,6 +1,7 @@
 import { BookOpen, Download, Eye, FileText, Image, PlayCircle, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AssignedTest } from "@/lib/types";
+import { MaterialFilePreview } from "./material-file-preview";
 
 type UserMaterial = {
   id: number;
@@ -98,10 +99,16 @@ export function DocumentsPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function markAsRead(material: UserMaterial) {
+  async function markAsRead(material: UserMaterial, showSuccess = true) {
+    if (material.readProgressPercent >= 100) {
+      return;
+    }
+
     setIsSaving(true);
     setError("");
-    setSuccess("");
+    if (showSuccess) {
+      setSuccess("");
+    }
 
     const response = await fetch("/api/materials", {
       method: "POST",
@@ -119,8 +126,19 @@ export function DocumentsPage({
       return;
     }
 
-    setSuccess("Đã cập nhật tiến độ đọc tài liệu.");
+    if (showSuccess) {
+      setSuccess("Đã cập nhật tiến độ đọc tài liệu.");
+    }
     await Promise.all([loadMaterials(), onRefreshAssignments()]);
+  }
+
+  function viewMaterial(material: UserMaterial) {
+    setSelectedMaterial(material);
+    void markAsRead(material, false);
+  }
+
+  function openMaterialFile(material: UserMaterial) {
+    void markAsRead(material, false);
   }
 
   return (
@@ -173,13 +191,16 @@ export function DocumentsPage({
               </div>
               <strong>Đã đọc {progress}%</strong>
               <div className="row-actions">
-                <button className="outline-button" onClick={() => setSelectedMaterial(material)}>
+                <button className="outline-button" onClick={() => viewMaterial(material)}>
                   <Eye size={16} /> Xem tài liệu
                 </button>
                 {material.contentUrl && (
-                  <a className="outline-button" href={material.contentUrl} target="_blank" rel="noreferrer">
+                  <button
+                    className="outline-button"
+                    onClick={() => viewMaterial(material)}
+                  >
                     <Download size={16} /> Mở file
-                  </a>
+                  </button>
                 )}
                 <button className="primary-button" onClick={() => markAsRead(material)} disabled={isSaving || progress === 100}>
                   <BookOpen size={16} /> Đã đọc
@@ -237,13 +258,12 @@ export function DocumentsPage({
             {selectedMaterial.contentText ? (
               <div className="material-text-preview">{selectedMaterial.contentText}</div>
             ) : selectedMaterial.contentUrl ? (
-              <div className="material-link-preview">
-                <FileText size={34} />
-                <strong>{selectedMaterial.title}</strong>
-                <a className="primary-button" href={selectedMaterial.contentUrl} target="_blank" rel="noreferrer">
-                  <Download size={16} /> Mở tài liệu
-                </a>
-              </div>
+              <MaterialFilePreview
+                title={selectedMaterial.title}
+                url={selectedMaterial.contentUrl}
+                materialType={selectedMaterial.materialType}
+                onOpen={() => openMaterialFile(selectedMaterial)}
+              />
             ) : (
               <p>Tài liệu này chưa có nội dung đính kèm.</p>
             )}

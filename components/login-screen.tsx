@@ -41,9 +41,15 @@ export function LoginScreen({ onLogin }: { onLogin: (employee: SessionUser) => v
     <main className="login-page">
       <section className="login-shell">
         <form className="login-card" onSubmit={handleSubmit}>
-          <BrandMark />
-          <h1>Electricbird E-Learning</h1>
-          <p>Hệ thống đào tạo & kiểm tra nội bộ</p>
+          <div className="login-brand-lockup">
+            <BrandMark />
+            <span className="login-eyebrow">Nền tảng đào tạo nội bộ</span>
+            <h1>
+              <span>Electric Bird</span>
+              <strong>E-Learning</strong>
+            </h1>
+            <p>Đào tạo, ôn tập và kiểm tra nội bộ</p>
+          </div>
 
           <label className="field">
             <span>Họ và tên nhân viên / Username</span>

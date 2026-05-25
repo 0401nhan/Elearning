@@ -1,38 +1,14 @@
-import { randomUUID } from "crypto";
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { NextResponse } from "next/server";
 import type { ResultSetHeader } from "mysql2";
 import { canManageMaterials, getCurrentUser } from "@/lib/auth";
 import { executeQuery, withTransaction } from "@/lib/db";
+import { MaterialFileError, saveUploadedMaterialFile } from "@/lib/material-files";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
 const MATERIAL_TYPES = new Set(["pdf", "image", "slide", "text", "video", "link"]);
-const MAX_FILE_BYTES = 30 * 1024 * 1024;
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "training-materials");
-const PUBLIC_UPLOAD_PATH = "/uploads/training-materials";
-const ALLOWED_UPLOAD_EXTENSIONS = new Set([
-  ".csv",
-  ".doc",
-  ".docx",
-  ".gif",
-  ".jpeg",
-  ".jpg",
-  ".mov",
-  ".mp4",
-  ".pdf",
-  ".png",
-  ".ppt",
-  ".pptx",
-  ".txt",
-  ".webm",
-  ".webp",
-  ".xls",
-  ".xlsx"
-]);
 
 function cleanText(value: unknown) {
   const text = String(value ?? "").trim();
@@ -57,12 +33,6 @@ function parseIds(values: FormDataEntryValue[]) {
   return [...new Set(ids)];
 }
 
-function safeFileName(name: string) {
-  const extension = path.extname(name).toLowerCase().replace(/[^a-z0-9.]/g, "");
-  const base = path.basename(name, extension).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `${base || "tai-lieu"}-${randomUUID()}${extension}`;
-}
-
 function isAllowedContentUrl(url: string) {
   if (url.startsWith("/") && !url.startsWith("//")) {
     return true;
@@ -74,28 +44,6 @@ function isAllowedContentUrl(url: string) {
   } catch {
     return false;
   }
-}
-
-async function saveUploadedFile(file: File) {
-  if (!file.size) {
-    return null;
-  }
-
-  if (file.size > MAX_FILE_BYTES) {
-    throw new Error("FILE_TOO_LARGE");
-  }
-
-  const extension = path.extname(file.name).toLowerCase();
-  if (!ALLOWED_UPLOAD_EXTENSIONS.has(extension)) {
-    throw new Error("FILE_TYPE_NOT_ALLOWED");
-  }
-
-  const filename = safeFileName(file.name);
-  const fullPath = path.join(UPLOAD_DIR, filename);
-  await mkdir(UPLOAD_DIR, { recursive: true });
-  await writeFile(fullPath, Buffer.from(await file.arrayBuffer()));
-
-  return `${PUBLIC_UPLOAD_PATH}/${filename}`;
 }
 
 async function requireMaterialManager(request: Request) {
@@ -131,15 +79,12 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     if (file instanceof File) {
-      contentUrl = await saveUploadedFile(file);
+      const savedFile = await saveUploadedMaterialFile(file);
+      contentUrl = savedFile.contentUrl;
     }
   } catch (error) {
-    if ((error as Error).message === "FILE_TOO_LARGE") {
-      return NextResponse.json({ error: "File upload tối đa 30MB." }, { status: 400 });
-    }
-
-    if ((error as Error).message === "FILE_TYPE_NOT_ALLOWED") {
-      return NextResponse.json({ error: "Dinh dang file upload khong duoc ho tro." }, { status: 400 });
+    if (error instanceof MaterialFileError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
     throw error;

@@ -16,6 +16,7 @@ import {
   Target
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { QuestionMedia } from "./question-media";
 
 type ManagedTestStatus = "draft" | "active" | "archived";
 
@@ -63,6 +64,7 @@ type TestQuestion = {
   id: number;
   groupName: string | null;
   questionText: string;
+  imageUrl: string | null;
   explanation: string | null;
   difficulty: string;
   isActive: boolean;
@@ -70,6 +72,7 @@ type TestQuestion = {
     id: number;
     label: string;
     text: string;
+    imageUrl: string | null;
     isCorrect: boolean;
   }[];
 };
@@ -230,7 +233,7 @@ function getPayload(form: TestForm) {
 
 function getRules(test: ManagedTest) {
   return [
-    ["Làm thử", test.allowUnlimitedPractice ? "Không giới hạn" : "Theo cấu hình", test.allowUnlimitedPractice ? "ok" : "info"],
+    ["Làm thử", test.allowUnlimitedPractice ? "Không giới hạn" : "1 lần", test.allowUnlimitedPractice ? "ok" : "info"],
     ["Làm chính thức", `${test.maxOfficialAttempts} lần`, "info"],
     ["Random câu hỏi", test.randomizeQuestions ? "Có" : "Không", test.randomizeQuestions ? "ok" : "warn"],
     ["Random đáp án", test.randomizeAnswers ? "Có" : "Không", test.randomizeAnswers ? "ok" : "warn"],
@@ -903,11 +906,21 @@ export function TestManagementPage() {
                         {!question.isActive && <small>Đã tắt</small>}
                       </header>
                       <p>{question.questionText}</p>
+                      <QuestionMedia
+                        src={question.imageUrl}
+                        alt={`Ảnh câu hỏi ${index + 1}`}
+                        variant="question"
+                      />
                       <div className="question-option-list">
                         {question.options.map((option) => (
                           <span key={option.id} className={option.isCorrect ? "correct" : ""}>
                             <b>{option.label}</b>
-                            {option.text}
+                            <span>{option.text}</span>
+                            <QuestionMedia
+                              src={option.imageUrl}
+                              alt={`Ảnh đáp án ${option.label}`}
+                              variant="thumbnail"
+                            />
                           </span>
                         ))}
                       </div>

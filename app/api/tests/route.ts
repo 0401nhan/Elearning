@@ -12,6 +12,7 @@ type TestRow = RowDataPacket & {
   question_count: number;
   duration_minutes: number;
   pass_score: string | number;
+  allow_unlimited_practice: number;
   status: string;
   assignment_status?: string;
   read_progress_percent?: string | number;
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
           t.question_count,
           t.duration_minutes,
           t.pass_score,
+          t.allow_unlimited_practice,
           t.status
         FROM tests t
         LEFT JOIN departments d ON d.id = t.department_id
@@ -55,6 +57,7 @@ export async function GET(request: Request) {
           t.question_count,
           t.duration_minutes,
           t.pass_score,
+          t.allow_unlimited_practice,
           t.status,
           ta.status AS assignment_status,
           ta.read_progress_percent,
@@ -73,6 +76,7 @@ export async function GET(request: Request) {
     tests: rows.map((row) => ({
       ...row,
       pass_score: toNumber(row.pass_score),
+      allow_unlimited_practice: Boolean(row.allow_unlimited_practice),
       read_progress_percent: toNumber(row.read_progress_percent),
       official_score: toNumber(row.official_score)
     }))

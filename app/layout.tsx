@@ -2,8 +2,13 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Electricbird E-Learning",
-  description: "Hệ thống đào tạo và kiểm tra nội bộ Electric Bird"
+  title: "Electric Bird E-Learning",
+  description: "Hệ thống đào tạo và kiểm tra nội bộ Electric Bird",
+  icons: {
+    icon: "/logo/logo-smallsize.png",
+    shortcut: "/logo/logo-smallsize.png",
+    apple: "/logo/logo-smallsize.png"
+  }
 };
 
 export const viewport: Viewport = {

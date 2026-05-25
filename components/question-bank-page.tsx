@@ -14,6 +14,7 @@ import {
   XCircle
 } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { QuestionMedia } from "./question-media";
 
 type QuestionDifficulty = "easy" | "medium" | "hard";
 
@@ -21,6 +22,7 @@ type AnswerOption = {
   id?: number;
   label: string;
   text: string;
+  imageUrl?: string | null;
   isCorrect: boolean;
 };
 
@@ -31,6 +33,7 @@ type BankQuestion = {
   groupId: number | null;
   groupName: string | null;
   questionText: string;
+  imageUrl: string | null;
   explanation: string | null;
   difficulty: QuestionDifficulty;
   isActive: boolean;
@@ -78,6 +81,7 @@ type QuestionForm = {
   testId: string;
   groupId: string;
   questionText: string;
+  questionImageUrl: string;
   explanation: string;
   difficulty: QuestionDifficulty;
   isActive: boolean;
@@ -91,6 +95,7 @@ function defaultOptions() {
   return ANSWER_LABELS.map((label, index) => ({
     label,
     text: "",
+    imageUrl: "",
     isCorrect: index === 0
   }));
 }
@@ -100,6 +105,7 @@ function emptyForm(testId = ""): QuestionForm {
     testId,
     groupId: "",
     questionText: "",
+    questionImageUrl: "",
     explanation: "",
     difficulty: "medium",
     isActive: true,
@@ -144,6 +150,7 @@ function toForm(question: BankQuestion): QuestionForm {
     testId: String(question.testId),
     groupId: question.groupId ? String(question.groupId) : "",
     questionText: question.questionText,
+    questionImageUrl: question.imageUrl ?? "",
     explanation: question.explanation ?? "",
     difficulty: question.difficulty,
     isActive: question.isActive,
@@ -154,6 +161,7 @@ function toForm(question: BankQuestion): QuestionForm {
         id: option?.id,
         label,
         text: option?.text ?? "",
+        imageUrl: option?.imageUrl ?? "",
         isCorrect: Boolean(option?.isCorrect)
       };
     })
@@ -165,6 +173,7 @@ function getPayload(form: QuestionForm) {
     testId: Number(form.testId),
     groupId: form.groupId ? Number(form.groupId) : null,
     questionText: form.questionText,
+    questionImageUrl: form.questionImageUrl,
     explanation: form.explanation,
     difficulty: form.difficulty,
     isActive: form.isActive,
@@ -308,6 +317,13 @@ export function QuestionBankPage() {
     setForm((current) => ({
       ...current,
       options: current.options.map((option) => (option.label === label ? { ...option, text } : option))
+    }));
+  }
+
+  function setOptionImageUrl(label: string, imageUrl: string) {
+    setForm((current) => ({
+      ...current,
+      options: current.options.map((option) => (option.label === label ? { ...option, imageUrl } : option))
     }));
   }
 
@@ -641,13 +657,29 @@ export function QuestionBankPage() {
                     <td>
                       <span className="question-cell">
                         <strong>{question.questionText}</strong>
+                        <QuestionMedia
+                          src={question.imageUrl}
+                          alt={`Ảnh câu hỏi ${question.id}`}
+                          variant="thumbnail"
+                        />
                         <small>{question.explanation ?? "Chưa có giải thích"}</small>
                       </span>
                     </td>
                     <td>{question.groupName ?? "--"}</td>
                     <td>{difficultyLabel(question.difficulty)}</td>
                     <td className="green-text">
-                      {correctOption ? `${correctOption.label}. ${correctOption.text}` : "--"}
+                      {correctOption ? (
+                        <span className="correct-option-cell">
+                          <span>{`${correctOption.label}. ${correctOption.text || "Ảnh đáp án"}`}</span>
+                          <QuestionMedia
+                            src={correctOption.imageUrl}
+                            alt={`Ảnh đáp án ${correctOption.label}`}
+                            variant="thumbnail"
+                          />
+                        </span>
+                      ) : (
+                        "--"
+                      )}
                     </td>
                     <td>
                       <span className={`status-pill ${question.isActive ? "success" : "neutral"}`}>
@@ -657,11 +689,12 @@ export function QuestionBankPage() {
                     <td>{formatDate(question.updatedAt)}</td>
                     <td>
                       <span className="table-actions">
-                        <button className="table-icon" onClick={() => openEditModal(question)} aria-label="Sửa câu hỏi">
+                        <button className="table-action-button" type="button" onClick={() => openEditModal(question)}>
                           <Edit3 size={16} />
+                          <span>Sửa</span>
                         </button>
                         {question.isActive && (
-                          <button className="table-icon danger" onClick={() => handleDisable(question)} aria-label="Tắt câu hỏi">
+                          <button className="table-icon danger" type="button" onClick={() => handleDisable(question)} aria-label="Tắt câu hỏi">
                             <Trash2 size={16} />
                           </button>
                         )}
@@ -772,6 +805,18 @@ export function QuestionBankPage() {
                 />
                 <span>Đang sử dụng</span>
               </label>
+              <label className="field question-image-field">
+                <span>Ảnh câu hỏi</span>
+                <div>
+                  <input
+                    type="text"
+                    value={form.questionImageUrl}
+                    onChange={(event) => setForm({ ...form, questionImageUrl: event.target.value })}
+                    placeholder="/uploads/question-images/cau-1.png hoặc https://..."
+                  />
+                </div>
+                <QuestionMedia src={form.questionImageUrl} alt="Ảnh câu hỏi" variant="thumbnail" />
+              </label>
               <label className="field question-text-field">
                 <span>Nội dung câu hỏi</span>
                 <div>
@@ -806,6 +851,19 @@ export function QuestionBankPage() {
                       onChange={() => setCorrectOption(option.label)}
                     />
                     <b>{option.label}</b>
+                    <span className="answer-option-image-field">
+                      <input
+                        type="text"
+                        value={option.imageUrl ?? ""}
+                        onChange={(event) => setOptionImageUrl(option.label, event.target.value)}
+                        placeholder={`Ảnh đáp án ${option.label}`}
+                      />
+                      <QuestionMedia
+                        src={option.imageUrl}
+                        alt={`Ảnh đáp án ${option.label}`}
+                        variant="thumbnail"
+                      />
+                    </span>
                     <input
                       value={option.text}
                       onChange={(event) => setOptionText(option.label, event.target.value)}

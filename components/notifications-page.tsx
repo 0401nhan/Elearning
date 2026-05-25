@@ -3,6 +3,7 @@ import {
   BookOpen,
   CheckCircle2,
   Clock3,
+  FileText,
   Filter,
   Mail,
   RefreshCw,
@@ -20,6 +21,7 @@ type NotificationItem = {
   type: NotificationType;
   isRead: boolean;
   createdAt: string;
+  targetTestId: number | null;
 };
 
 type NotificationsResponse = {
@@ -51,7 +53,7 @@ const statusOptions = [
 ];
 
 function typeMeta(type: NotificationType) {
-  if (type === "assignment") return { icon: Bell, tone: "blue", label: "Bài test" };
+  if (type === "assignment") return { icon: ShieldAlert, tone: "red", label: "Bài test" };
   if (type === "material") return { icon: BookOpen, tone: "green", label: "Tài liệu" };
   if (type === "result") return { icon: CheckCircle2, tone: "green", label: "Kết quả" };
   if (type === "retake") return { icon: ShieldAlert, tone: "orange", label: "Thi lại" };
@@ -71,7 +73,7 @@ function notifyBadgeChanged() {
   window.dispatchEvent(new Event("notifications:changed"));
 }
 
-export function NotificationsPage() {
+export function NotificationsPage({ onOpenTest }: { onOpenTest?: (testId: number) => void }) {
   const [data, setData] = useState<NotificationsResponse | null>(null);
   const [type, setType] = useState("");
   const [status, setStatus] = useState("");
@@ -136,6 +138,25 @@ export function NotificationsPage() {
     setSuccess(action === "read_all" ? "Đã đánh dấu tất cả thông báo là đã đọc." : "Đã cập nhật thông báo.");
     notifyBadgeChanged();
     await loadNotifications();
+  }
+
+  async function openNotificationTest(item: NotificationItem) {
+    if (!item.targetTestId || !onOpenTest) {
+      return;
+    }
+
+    if (!item.isRead) {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action: "read", notificationId: item.id })
+      }).catch(() => null);
+      notifyBadgeChanged();
+    }
+
+    onOpenTest(item.targetTestId);
   }
 
   return (
@@ -225,17 +246,31 @@ export function NotificationsPage() {
           const Icon = meta.icon;
 
           return (
-            <article className={`notification-card ${item.isRead ? "read" : "unread"}`} key={item.id}>
+            <article
+              className={`notification-card ${item.isRead ? "read" : "unread"} ${
+                item.type === "assignment" ? "urgent-notification" : ""
+              }`}
+              key={item.id}
+            >
               <span className={`stat-icon ${meta.tone}`}>
                 <Icon size={26} />
               </span>
               <div>
-                <span className="notification-label">{meta.label}</span>
+                <span className={`notification-label ${item.type === "assignment" ? "urgent" : ""}`}>{meta.label}</span>
                 <strong>{item.title}</strong>
                 <p>{item.body}</p>
               </div>
               <div className="notification-side">
                 <time>{formatTime(item.createdAt)}</time>
+                {item.type === "assignment" && item.targetTestId && (
+                  <button
+                    className="primary-button"
+                    onClick={() => openNotificationTest(item)}
+                    disabled={isSaving}
+                  >
+                    <FileText size={17} /> Mở bài test
+                  </button>
+                )}
                 <button
                   className="outline-button"
                   onClick={() => updateNotification(item.isRead ? "unread" : "read", item.id)}

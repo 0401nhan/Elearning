@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import {
+  canStartPracticeAttempt,
   isOfficialLocked,
   isOfficialPassed,
   officialResultLabel,
@@ -105,9 +106,6 @@ export function HomeDashboard({
         <div className="panel profile-panel">
           <div className="section-title">
             <h3>Thông tin cá nhân</h3>
-            <button>
-              <Pencil size={16} /> Sửa
-            </button>
           </div>
           <div className="profile-body">
             <Avatar name={user.fullName} initials={user.avatarInitial} />
@@ -188,6 +186,7 @@ function AssignedTestRow({
   const officialTone = officialResultTone(test);
   const officialButtonClass = officialDone && officialPassed ? `official-result-button ${officialTone}` : "primary-button";
   const pendingRetakeRequestExists = hasPendingRetakeRequest(test);
+  const canStartPractice = canStartPracticeAttempt(test);
 
   return (
     <article className={`test-row ${officialDone ? `official-${officialTone}` : ""}`}>
@@ -221,13 +220,13 @@ function AssignedTestRow({
           <Eye size={16} /> Xem tài liệu
         </button>
         {!officialPassed && test.status !== "CHƯA ĐẠT" && (
-          <button className="warm-button" onClick={() => onPractice(test.id)}>
-            <Pencil size={16} /> Làm thử
+          <button className="warm-button" onClick={() => onPractice(test.id)} disabled={!canStartPractice}>
+            <Pencil size={16} /> {canStartPractice ? "Làm thử" : "Hết lượt làm thử"}
           </button>
         )}
         {test.status === "CHƯA ĐẠT" && (
-          <button className="danger-outline-button" onClick={() => onPractice(test.id)}>
-            <RotateCcw size={16} /> Làm lại
+          <button className="danger-outline-button" onClick={() => onPractice(test.id)} disabled={!canStartPractice}>
+            <RotateCcw size={16} /> {canStartPractice ? "Làm lại" : "Hết lượt làm thử"}
           </button>
         )}
         {officialDone && !officialPassed ? (

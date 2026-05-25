@@ -34,6 +34,7 @@ export type UserAssignment = {
   question_count: number;
   duration_minutes: number;
   pass_score: number;
+  allow_unlimited_practice: boolean;
   due_at: string | null;
   status: AssignmentStatus;
   read_progress_percent: number;
@@ -62,6 +63,7 @@ export type AssignedTest = {
   questions: number;
   minutes: number;
   passScore: number;
+  allowUnlimitedPractice?: boolean;
   dueAt?: string | null;
   readProgress: number;
   attempts: number;

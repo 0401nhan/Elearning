@@ -582,6 +582,7 @@ async function seedDemoData(connection) {
       q.id AS question_id,
       q.test_id,
       q.question_text,
+      q.image_url,
       q.explanation,
       q.difficulty,
       qg.name AS group_name,
@@ -607,6 +608,7 @@ async function seedDemoData(connection) {
       ao.question_id,
       ao.option_label,
       ao.option_text,
+      ao.image_url,
       ao.is_correct
     FROM answer_options ao
     JOIN questions q ON q.id = ao.question_id
@@ -642,6 +644,7 @@ async function seedDemoData(connection) {
         question.question_id,
         index + 1,
         question.question_text,
+        question.image_url,
         question.explanation,
         question.difficulty,
         question.group_name
@@ -654,6 +657,7 @@ async function seedDemoData(connection) {
           optionIndex + 1,
           option.option_label,
           option.option_text,
+          option.image_url,
           option.is_correct ? 1 : 0
         ]);
       });
@@ -665,7 +669,7 @@ async function seedDemoData(connection) {
     await connection.query(
       `
       INSERT IGNORE INTO attempt_questions
-        (attempt_id, question_id, question_order, question_text_snapshot, explanation_snapshot, difficulty_snapshot, group_name_snapshot)
+        (attempt_id, question_id, question_order, question_text_snapshot, image_url_snapshot, explanation_snapshot, difficulty_snapshot, group_name_snapshot)
       VALUES ?
       `,
       [attemptQuestionRows]
@@ -676,7 +680,7 @@ async function seedDemoData(connection) {
     await connection.query(
       `
       INSERT IGNORE INTO attempt_question_options
-        (attempt_id, question_id, option_id, option_order, option_label_snapshot, option_text_snapshot, is_correct_snapshot)
+        (attempt_id, question_id, option_id, option_order, option_label_snapshot, option_text_snapshot, option_image_url_snapshot, is_correct_snapshot)
       VALUES ?
       `,
       [attemptQuestionOptionRows]

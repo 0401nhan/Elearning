@@ -16,12 +16,14 @@ type QuestionRow = RowDataPacket & {
   group_id: number | null;
   group_name: string | null;
   question_text: string;
+  question_image_url: string | null;
   explanation: string | null;
   difficulty: string;
   is_active: number;
   option_id: number | null;
   option_label: string | null;
   option_text: string | null;
+  option_image_url: string | null;
   is_correct: number | null;
 };
 
@@ -96,12 +98,14 @@ export async function GET(request: Request, context: RouteContext) {
       q.group_id,
       qg.name AS group_name,
       q.question_text,
+      q.image_url AS question_image_url,
       q.explanation,
       q.difficulty,
       q.is_active,
       ao.id AS option_id,
       ao.option_label,
       ao.option_text,
+      ao.image_url AS option_image_url,
       ao.is_correct
     FROM questions q
     LEFT JOIN question_groups qg ON qg.id = q.group_id
@@ -123,6 +127,7 @@ export async function GET(request: Request, context: RouteContext) {
         groupId: row.group_id,
         groupName: row.group_name,
         questionText: row.question_text,
+        imageUrl: row.question_image_url,
         explanation: row.explanation,
         difficulty: row.difficulty,
         isActive: Boolean(row.is_active),
@@ -130,15 +135,17 @@ export async function GET(request: Request, context: RouteContext) {
           id: number;
           label: string;
           text: string;
+          imageUrl: string | null;
           isCorrect: boolean;
         }[]
       };
 
-      if (row.option_id && row.option_label && row.option_text) {
+      if (row.option_id && row.option_label) {
         question.options.push({
           id: row.option_id,
           label: row.option_label,
-          text: row.option_text,
+          text: row.option_text ?? "",
+          imageUrl: row.option_image_url,
           isCorrect: Boolean(row.is_correct)
         });
       }
@@ -150,6 +157,7 @@ export async function GET(request: Request, context: RouteContext) {
       groupId: number | null;
       groupName: string | null;
       questionText: string;
+      imageUrl: string | null;
       explanation: string | null;
       difficulty: string;
       isActive: boolean;
@@ -157,6 +165,7 @@ export async function GET(request: Request, context: RouteContext) {
         id: number;
         label: string;
         text: string;
+        imageUrl: string | null;
         isCorrect: boolean;
       }[];
     }>())

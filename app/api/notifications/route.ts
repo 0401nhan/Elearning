@@ -27,12 +27,32 @@ type NotificationTargetRow = RowDataPacket & {
   employee_id: number | null;
 };
 
+type AssignedTestRow = RowDataPacket & {
+  id: number;
+  title: string;
+};
+
 const NOTIFICATION_TYPES = new Set(["assignment", "material", "result", "retake", "system"]);
 const USER_READ_SQL = "CASE WHEN n.employee_id IS NULL THEN COALESCE(nr.is_read, 0) ELSE n.is_read END";
 
 function cleanText(value: string | null) {
   const text = String(value ?? "").trim();
   return text || null;
+}
+
+function getTargetTestId(notification: Pick<NotificationRow, "title" | "body" | "type">, assignedTests: AssignedTestRow[]) {
+  if (notification.type !== "assignment") {
+    return null;
+  }
+
+  const haystack = `${notification.title} ${notification.body}`.toLocaleLowerCase("vi-VN");
+  const matchedTest = assignedTests.find((test) => haystack.includes(test.title.toLocaleLowerCase("vi-VN")));
+
+  if (matchedTest) {
+    return Number(matchedTest.id);
+  }
+
+  return assignedTests.length === 1 ? Number(assignedTests[0].id) : null;
 }
 
 export async function GET(request: Request) {
@@ -68,7 +88,7 @@ export async function GET(request: Request) {
   const whereSql = `WHERE ${filters.join(" AND ")}`;
   const rowValues = [employee.id, ...values];
 
-  const [rows, counts] = await Promise.all([
+  const [rows, counts, assignedTests] = await Promise.all([
     queryRows<NotificationRow[]>(
       `
       SELECT
@@ -103,6 +123,16 @@ export async function GET(request: Request) {
       WHERE n.employee_id = ? OR n.employee_id IS NULL
       `,
       [employee.id, employee.id]
+    ),
+    queryRows<AssignedTestRow[]>(
+      `
+      SELECT t.id, t.title
+      FROM test_assignments ta
+      JOIN tests t ON t.id = ta.test_id
+      WHERE ta.employee_id = ? AND t.status = 'active'
+      ORDER BY ta.updated_at DESC, ta.id DESC
+      `,
+      [employee.id]
     )
   ]);
 
@@ -124,7 +154,8 @@ export async function GET(request: Request) {
       body: row.body,
       type: row.type,
       isRead: Boolean(row.is_read),
-      createdAt: row.created_at
+      createdAt: row.created_at,
+      targetTestId: getTargetTestId(row, assignedTests)
     }))
   });
 }

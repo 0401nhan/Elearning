@@ -12,6 +12,7 @@ type AssignmentRow = RowDataPacket & {
   question_count: number;
   duration_minutes: number;
   pass_score: string | number;
+  allow_unlimited_practice: number;
   due_at: string | null;
   status: string;
   read_progress_percent: string | number;
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
       t.question_count,
       t.duration_minutes,
       t.pass_score,
+      t.allow_unlimited_practice,
       DATE_FORMAT(ta.due_at, '%Y-%m-%d') AS due_at,
       ta.status,
       ta.read_progress_percent,
@@ -91,6 +93,7 @@ export async function GET(request: Request) {
     assignments: assignments.map((item) => ({
       ...item,
       pass_score: toNumber(item.pass_score),
+      allow_unlimited_practice: Boolean(item.allow_unlimited_practice),
       read_progress_percent: toNumber(item.read_progress_percent),
       official_score: toNumber(item.official_score),
       retake_request_count: toNumber(item.retake_request_count) ?? 0,
