@@ -114,14 +114,7 @@ function buildPracticeLeaderboard(rows: PracticeScoreRow[], currentEmployeeId: n
       isCurrentUser: item.employeeId === currentEmployeeId
     }));
 
-  const topEntries = ranked.slice(0, PRACTICE_LEADERBOARD_LIMIT);
-  const currentEntry = ranked.find((item) => item.employeeId === currentEmployeeId);
-
-  if (currentEntry && !topEntries.some((item) => item.employeeId === currentEmployeeId)) {
-    return [...topEntries, currentEntry];
-  }
-
-  return topEntries;
+  return ranked.slice(0, PRACTICE_LEADERBOARD_LIMIT);
 }
 
 export async function GET(request: Request) {

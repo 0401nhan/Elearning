@@ -10,8 +10,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Star,
-  Target,
-  Trophy
+  Target
 } from "lucide-react";
 import { useState } from "react";
 import {
@@ -21,7 +20,7 @@ import {
   officialResultLabel,
   officialResultTone
 } from "@/lib/test-state";
-import type { AssignedTest, PracticeLeaderboardEntry, SessionUser, Summary } from "@/lib/types";
+import type { AssignedTest, SessionUser, Summary } from "@/lib/types";
 import { Avatar, ProgressLine, StatCard, StatusPill } from "./shared";
 
 function hasPendingRetakeRequest(test: AssignedTest) {
@@ -40,29 +39,9 @@ function retakeButtonLabel(test: AssignedTest, isRequesting: boolean) {
   return "Gửi yêu cầu thi lại";
 }
 
-function formatScore(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function formatPracticeDate(value: string | null) {
-  if (!value) {
-    return "--";
-  }
-
-  const date = new Date(value.replace(" ", "T"));
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleDateString("vi-VN", {
-        day: "2-digit",
-        month: "2-digit"
-      });
-}
-
 export function HomeDashboard({
   summary,
   tests,
-  practiceLeaderboard,
-  showPracticeLeaderboard = true,
   user,
   onOpenTest,
   onPractice,
@@ -71,8 +50,6 @@ export function HomeDashboard({
 }: {
   summary: Summary;
   tests: AssignedTest[];
-  practiceLeaderboard: PracticeLeaderboardEntry[];
-  showPracticeLeaderboard?: boolean;
   user: SessionUser;
   onOpenTest: (testId: number) => void;
   onPractice: (testId: number) => void;
@@ -88,7 +65,6 @@ export function HomeDashboard({
   const practiceTotal = tests.reduce((sum, test) => sum + test.attempts, 0);
   const bestOfficialScore = tests.reduce((best, test) => Math.max(best, test.officialScore ?? 0), 0);
   const overallStatus = summary.done === summary.total && summary.total > 0 ? "Đã hoàn thành" : "Đang học";
-  const currentLeaderboardEntry = practiceLeaderboard.find((entry) => entry.isCurrentUser) ?? null;
 
   async function requestRetake(test: AssignedTest) {
     if (hasPendingRetakeRequest(test)) {
@@ -157,55 +133,6 @@ export function HomeDashboard({
           <ProgressLine icon={CheckCircle2} label="Trạng thái chung" value={overallStatus} percent={completionRate} tone="green" />
         </div>
       </section>
-
-      {showPracticeLeaderboard && (
-        <section className="panel practice-leaderboard-panel">
-          <div className="section-title">
-            <h3>BXH làm thử</h3>
-            <Trophy size={20} />
-          </div>
-          <div className="practice-leaderboard-summary">
-            <div>
-              <span>Tổng điểm của bạn</span>
-              <strong>{currentLeaderboardEntry ? formatScore(currentLeaderboardEntry.totalScore) : "--"}/500</strong>
-              <small>Tối đa 5 lượt làm thử mới nhất</small>
-            </div>
-            <div>
-              <span>Hạng của bạn</span>
-              <strong>{currentLeaderboardEntry ? `#${currentLeaderboardEntry.rank}` : "--"}</strong>
-              <small>
-                {currentLeaderboardEntry
-                  ? `${currentLeaderboardEntry.attemptCount}/5 lượt được tính`
-                  : "Chưa có lượt làm thử"}
-              </small>
-            </div>
-          </div>
-          <div className="practice-leaderboard-list">
-            {practiceLeaderboard.map((entry) => (
-              <article className={entry.isCurrentUser ? "current-user" : ""} key={entry.employeeId}>
-                <span className="leaderboard-rank">#{entry.rank}</span>
-                <Avatar name={entry.fullName} small />
-                <div className="leaderboard-person">
-                  <strong>{entry.fullName}</strong>
-                  <small>
-                    {entry.employeeCode} · {entry.departmentName ?? "Áp dụng chung"}
-                  </small>
-                </div>
-                <div className="leaderboard-score">
-                  <strong>{formatScore(entry.totalScore)}</strong>
-                  <small>
-                    {entry.attemptCount}/5 lượt mới nhất · cao nhất {formatScore(entry.highestScore)} ·{" "}
-                    {formatPracticeDate(entry.latestPracticeAt)}
-                  </small>
-                </div>
-              </article>
-            ))}
-            {practiceLeaderboard.length === 0 && (
-              <p className="empty-leaderboard">Chưa có dữ liệu làm thử để xếp hạng.</p>
-            )}
-          </div>
-        </section>
-      )}
 
       <section className="panel assigned-tests">
         <div className="section-title">

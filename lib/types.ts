@@ -5,6 +5,7 @@ export type Screen =
   | "home"
   | "documents"
   | "tests"
+  | "leaderboard"
   | "test"
   | "practice"
   | "official"

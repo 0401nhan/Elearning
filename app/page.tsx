@@ -10,6 +10,7 @@ import { LoginScreen } from "@/components/login-screen";
 import { NotificationsPage } from "@/components/notifications-page";
 import { OfficialScreen } from "@/components/official-screen";
 import { PracticeScreen } from "@/components/practice-screen";
+import { PracticeLeaderboardPage } from "@/components/practice-leaderboard-page";
 import { ProfilePage } from "@/components/profile-page";
 import { ResultsPage } from "@/components/results-page";
 import { SupportPage } from "@/components/support-page";
@@ -412,8 +413,6 @@ export default function Page() {
         <HomeDashboard
           summary={summary}
           tests={assignedUserTests}
-          practiceLeaderboard={practiceLeaderboard}
-          showPracticeLeaderboard={!canAccessAdminUser(user)}
           user={user}
           onOpenTest={openTest}
           onPractice={openPractice}
@@ -436,8 +435,6 @@ export default function Page() {
         <HomeDashboard
           summary={summary}
           tests={assignedUserTests}
-          practiceLeaderboard={practiceLeaderboard}
-          showPracticeLeaderboard={!canAccessAdminUser(user)}
           user={user}
           onOpenTest={openTest}
           onPractice={openPractice}
@@ -478,6 +475,7 @@ export default function Page() {
         />
       )}
       {screen === "results" && <ResultsPage onReview={() => setScreen("practice")} />}
+      {screen === "leaderboard" && <PracticeLeaderboardPage leaderboard={practiceLeaderboard} user={user} />}
       {screen === "profile" && <ProfilePage user={user} onUserUpdate={setUser} />}
       {screen === "notifications" && <NotificationsPage onOpenTest={openTest} />}
       {screen === "settings" && <SystemSettingsPage theme={theme} onThemeChange={setTheme} />}

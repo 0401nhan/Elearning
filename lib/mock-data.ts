@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   ShieldX,
   Star,
+  Trophy,
   User,
   Users
 } from "lucide-react";
@@ -149,6 +150,7 @@ export const navItems = [
   { label: "Trang chủ", icon: Home, screen: "home" as Screen },
   { label: "Tài liệu học", icon: BookOpen, screen: "documents" as Screen },
   { label: "Bài test", icon: ClipboardCheck, screen: "tests" as Screen },
+  { label: "BXH", icon: Trophy, screen: "leaderboard" as Screen },
   { label: "Kết quả", icon: BarChart3, screen: "results" as Screen },
   { label: "Hồ sơ cá nhân", icon: User, screen: "profile" as Screen },
   { label: "Thông báo", icon: Bell, screen: "notifications" as Screen },
