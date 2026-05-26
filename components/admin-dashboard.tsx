@@ -8,6 +8,7 @@ import {
   Download,
   Eye,
   FileText,
+  Home,
   Mail,
   RefreshCw,
   Search,
@@ -468,6 +469,11 @@ export function AdminDashboard({
             <p>Theo dõi đào tạo & kết quả test</p>
           </div>
           <div className="topbar-spacer" />
+          {!isFullAdmin && (
+            <button className="outline-button admin-user-view-button" type="button" onClick={() => setScreen("home")}>
+              <Home size={17} /> Giao diện user
+            </button>
+          )}
           <div className="admin-notice-menu">
             <button
               className={`notification-button ${isNoticeOpen ? "active" : ""}`}
