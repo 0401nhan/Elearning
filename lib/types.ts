@@ -54,6 +54,20 @@ export type UserSummary = {
   average: number;
 };
 
+export type PracticeLeaderboardEntry = {
+  rank: number;
+  employeeId: number;
+  employeeCode: string;
+  fullName: string;
+  departmentName: string | null;
+  totalScore: number;
+  attemptCount: number;
+  averageScore: number;
+  highestScore: number;
+  latestPracticeAt: string | null;
+  isCurrentUser: boolean;
+};
+
 export type AssignedTest = {
   id: number;
   assignmentId?: number;

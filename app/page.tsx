@@ -18,7 +18,16 @@ import { TestDetail } from "@/components/test-detail";
 import { TestsPage } from "@/components/tests-page";
 import { canAccessAdminUser } from "@/lib/permissions";
 import { canStartOfficialAttempt, canStartPracticeAttempt, hasOfficialResult } from "@/lib/test-state";
-import type { AssignedTest, Screen, SessionUser, TestStatus, ThemeMode, UserAssignment, UserSummary } from "@/lib/types";
+import type {
+  AssignedTest,
+  PracticeLeaderboardEntry,
+  Screen,
+  SessionUser,
+  TestStatus,
+  ThemeMode,
+  UserAssignment,
+  UserSummary
+} from "@/lib/types";
 
 const THEME_STORAGE_KEY = "eb-theme-mode";
 const ACTIVE_OFFICIAL_ATTEMPT_KEY = "eb-active-official-attempt";
@@ -26,6 +35,7 @@ const ACTIVE_OFFICIAL_ATTEMPT_KEY = "eb-active-official-attempt";
 type MeResponse = {
   employee: SessionUser;
   summary: UserSummary;
+  practiceLeaderboard: PracticeLeaderboardEntry[];
   assignments: UserAssignment[];
 };
 
@@ -150,6 +160,7 @@ export default function Page() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [assignments, setAssignments] = useState<UserAssignment[]>([]);
   const [userSummary, setUserSummary] = useState<UserSummary>(emptySummary);
+  const [practiceLeaderboard, setPracticeLeaderboard] = useState<PracticeLeaderboardEntry[]>([]);
   const [isBooting, setIsBooting] = useState(true);
   const [selectedTestId, setSelectedTestId] = useState<number | null>(null);
   const [theme, setTheme] = useState<ThemeMode>("light");
@@ -187,6 +198,7 @@ export default function Page() {
   const applyMeData = useCallback((data: MeResponse) => {
     setUser(data.employee);
     setUserSummary(data.summary ?? emptySummary);
+    setPracticeLeaderboard(data.practiceLeaderboard ?? []);
     setAssignments(data.assignments ?? []);
     setSelectedTestId((current) => current ?? data.assignments?.[0]?.test_id ?? null);
   }, []);
@@ -240,6 +252,7 @@ export default function Page() {
           setUser(null);
           setAssignments([]);
           setUserSummary(emptySummary);
+          setPracticeLeaderboard([]);
           setScreen("login");
         }
       } catch {
@@ -247,6 +260,7 @@ export default function Page() {
           setUser(null);
           setAssignments([]);
           setUserSummary(emptySummary);
+          setPracticeLeaderboard([]);
           setScreen("login");
         }
       } finally {
@@ -299,6 +313,7 @@ export default function Page() {
     setUser(null);
     setAssignments([]);
     setUserSummary(emptySummary);
+    setPracticeLeaderboard([]);
     setSelectedTestId(null);
     setScreen("login");
   }
@@ -397,6 +412,8 @@ export default function Page() {
         <HomeDashboard
           summary={summary}
           tests={assignedUserTests}
+          practiceLeaderboard={practiceLeaderboard}
+          showPracticeLeaderboard={!canAccessAdminUser(user)}
           user={user}
           onOpenTest={openTest}
           onPractice={openPractice}
@@ -419,6 +436,8 @@ export default function Page() {
         <HomeDashboard
           summary={summary}
           tests={assignedUserTests}
+          practiceLeaderboard={practiceLeaderboard}
+          showPracticeLeaderboard={!canAccessAdminUser(user)}
           user={user}
           onOpenTest={openTest}
           onPractice={openPractice}
