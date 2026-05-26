@@ -9,6 +9,7 @@ import {
   FileText,
   HelpCircle,
   Home,
+  KeyRound,
   LibraryBig,
   ListChecks,
   Settings,
@@ -156,7 +157,7 @@ export const navItems = [
   { label: "Thông báo", icon: Bell, screen: "notifications" as Screen },
   { label: "Cài đặt hệ thống", icon: Settings, screen: "settings" as Screen },
   { label: "Hỗ trợ", icon: HelpCircle, screen: "support" as Screen },
-  { label: "Admin", icon: Settings, screen: "admin" as Screen }
+  { label: "Manager", icon: KeyRound, screen: "admin" as Screen }
 ];
 
 export const adminNavItems = [

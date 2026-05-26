@@ -8,7 +8,7 @@ import {
   Download,
   Eye,
   FileText,
-  Home,
+  KeyRound,
   Mail,
   RefreshCw,
   Search,
@@ -440,6 +440,12 @@ export function AdminDashboard({
       <aside className="sidebar admin-sidebar">
         <BrandMark compact />
         <nav className="side-nav">
+          {!isFullAdmin && (
+            <button onClick={() => setScreen("home")}>
+              <KeyRound size={20} />
+              <span>User</span>
+            </button>
+          )}
           {visibleAdminNavItems.map((item, index) => {
             const Icon = item.icon;
             return (
@@ -469,11 +475,6 @@ export function AdminDashboard({
             <p>Theo dõi đào tạo & kết quả test</p>
           </div>
           <div className="topbar-spacer" />
-          {!isFullAdmin && (
-            <button className="outline-button admin-user-view-button" type="button" onClick={() => setScreen("home")}>
-              <Home size={17} /> Giao diện user
-            </button>
-          )}
           <div className="admin-notice-menu">
             <button
               className={`notification-button ${isNoticeOpen ? "active" : ""}`}
