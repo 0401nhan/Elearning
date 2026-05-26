@@ -69,7 +69,6 @@ export function ProfilePage({
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          fullName,
           phone,
           email,
           avatarInitial
@@ -141,13 +140,6 @@ export function ProfilePage({
                       maxLength={3}
                       placeholder="VD: AD"
                     />
-                  </div>
-                </label>
-                <label className="field">
-                  <span>Họ tên</span>
-                  <div>
-                    <User size={18} />
-                    <input value={fullName} onChange={(event) => setFullName(event.target.value)} />
                   </div>
                 </label>
                 <label className="field">

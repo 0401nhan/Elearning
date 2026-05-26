@@ -26,13 +26,12 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json().catch(() => null);
-  const fullName = String(body?.fullName ?? "").trim();
   const phone = String(body?.phone ?? "").trim();
   const email = cleanText(body?.email);
   const avatarInitial = cleanAvatarInitial(body?.avatarInitial);
 
-  if (!fullName || !phone) {
-    return NextResponse.json({ error: "Họ tên và số điện thoại là bắt buộc." }, { status: 400 });
+  if (!phone) {
+    return NextResponse.json({ error: "Số điện thoại là bắt buộc." }, { status: 400 });
   }
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -42,13 +41,12 @@ export async function PATCH(request: Request) {
   await executeQuery<ResultSetHeader>(
     `
     UPDATE employees
-    SET full_name = ?,
-        phone = ?,
+    SET phone = ?,
         email = ?,
         avatar_initial = ?
     WHERE id = ?
     `,
-    [fullName, phone, email, avatarInitial, currentUser.id]
+    [phone, email, avatarInitial, currentUser.id]
   );
 
   const employee = await getUserById(currentUser.id);
