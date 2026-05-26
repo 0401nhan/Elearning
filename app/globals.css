@@ -1083,12 +1083,38 @@ dd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 42px;
   min-height: 28px;
   border-radius: 6px;
   color: #073279;
   background: #e8f1ff;
   font-size: 13px;
   font-weight: 800;
+}
+
+.leaderboard-rank.trophy-rank {
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.leaderboard-rank.trophy-rank svg {
+  fill: currentColor;
+  stroke-width: 1.9;
+}
+
+.leaderboard-rank.trophy-rank.gold {
+  color: #b77900;
+  background: #fff4c7;
+}
+
+.leaderboard-rank.trophy-rank.silver {
+  color: #6f7886;
+  background: #eef2f7;
+}
+
+.leaderboard-rank.trophy-rank.bronze {
+  color: #a45518;
+  background: #ffe6d2;
 }
 
 .leaderboard-person,
@@ -5484,6 +5510,21 @@ td:nth-child(2) {
 :root[data-theme="dark"] .leaderboard-rank {
   color: #9cc3ff;
   background: #12294a;
+}
+
+:root[data-theme="dark"] .leaderboard-rank.trophy-rank.gold {
+  color: #ffd166;
+  background: #3a2b08;
+}
+
+:root[data-theme="dark"] .leaderboard-rank.trophy-rank.silver {
+  color: #d0d7e2;
+  background: #253041;
+}
+
+:root[data-theme="dark"] .leaderboard-rank.trophy-rank.bronze {
+  color: #f2a46f;
+  background: #3a2114;
 }
 
 :root[data-theme="dark"] .notification-card.urgent-notification,

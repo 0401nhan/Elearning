@@ -6,18 +6,32 @@ function formatScore(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function formatPracticeDate(value: string | null) {
-  if (!value) {
-    return "--";
+function trophyClass(rank: number) {
+  if (rank === 1) return "gold";
+  if (rank === 2) return "silver";
+  if (rank === 3) return "bronze";
+  return "";
+}
+
+function rankLabel(rank: number) {
+  if (rank === 1) return "Cúp vàng";
+  if (rank === 2) return "Cúp bạc";
+  if (rank === 3) return "Cúp đồng";
+  return `Hạng ${rank}`;
+}
+
+function LeaderboardRank({ rank }: { rank: number }) {
+  const className = trophyClass(rank);
+
+  if (className) {
+    return (
+      <span className={`leaderboard-rank trophy-rank ${className}`} title={rankLabel(rank)} aria-label={rankLabel(rank)}>
+        <Trophy size={20} />
+      </span>
+    );
   }
 
-  const date = new Date(value.replace(" ", "T"));
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleDateString("vi-VN", {
-        day: "2-digit",
-        month: "2-digit"
-      });
+  return <span className="leaderboard-rank">#{rank}</span>;
 }
 
 export function PracticeLeaderboardPage({
@@ -64,7 +78,7 @@ export function PracticeLeaderboardPage({
         <div className="practice-leaderboard-list">
           {leaderboard.map((entry) => (
             <article className={entry.isCurrentUser ? "current-user" : ""} key={entry.employeeId}>
-              <span className="leaderboard-rank">#{entry.rank}</span>
+              <LeaderboardRank rank={entry.rank} />
               <Avatar name={entry.fullName} small />
               <div className="leaderboard-person">
                 <strong>{entry.fullName}</strong>
@@ -74,10 +88,6 @@ export function PracticeLeaderboardPage({
               </div>
               <div className="leaderboard-score">
                 <strong>{formatScore(entry.totalScore)}</strong>
-                <small>
-                  {entry.attemptCount}/5 lượt · cao nhất {formatScore(entry.highestScore)} ·{" "}
-                  {formatPracticeDate(entry.latestPracticeAt)}
-                </small>
               </div>
             </article>
           ))}
