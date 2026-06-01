@@ -38,6 +38,10 @@ type CountRow = RowDataPacket & {
   total: number;
 };
 
+type EmployeeIdRow = RowDataPacket & {
+  id: number;
+};
+
 type SummaryRow = RowDataPacket & {
   total_employees: number;
   assigned_count: number | null;
@@ -87,6 +91,22 @@ function parseDueAt(value: unknown) {
   return `${text} 23:59:59`;
 }
 
+function buildStatusFilter(status: string) {
+  const where: string[] = [];
+  const values: string[] = [];
+
+  if (status === "assigned") {
+    where.push("ta.id IS NOT NULL");
+  } else if (status === "unassigned") {
+    where.push("ta.id IS NULL");
+  } else if (ASSIGNMENT_STATUSES.has(status)) {
+    where.push("ta.status = ?");
+    values.push(status);
+  }
+
+  return { where, values };
+}
+
 function toNumber(value: unknown) {
   if (value === null || value === undefined) {
     return null;
@@ -132,6 +152,8 @@ export async function GET(request: Request) {
   const departmentId = Number(searchParams.get("departmentId") ?? 0);
   const search = cleanText(searchParams.get("search"));
   const status = searchParams.get("status") ?? "";
+  const includeSelectionIds = searchParams.get("includeSelectionIds") === "1";
+  const selectionStatus = searchParams.get("selectionStatus") ?? status;
   const requestedPage = getIntegerParam(searchParams.get("page"), 1, 1, 10000);
   const pageSize = 10;
 
@@ -203,19 +225,13 @@ export async function GET(request: Request) {
     baseValues.push(like, like, like, like);
   }
 
-  const statusWhere: string[] = [];
-  if (status === "assigned") {
-    statusWhere.push("ta.id IS NOT NULL");
-  } else if (status === "unassigned") {
-    statusWhere.push("ta.id IS NULL");
-  } else if (ASSIGNMENT_STATUSES.has(status)) {
-    statusWhere.push("ta.status = ?");
-    baseValues.push(status);
-  }
+  const statusFilter = buildStatusFilter(status);
 
-  const whereSql = [...baseWhere, ...statusWhere].length ? `WHERE ${[...baseWhere, ...statusWhere].join(" AND ")}` : "";
+  const whereSql = [...baseWhere, ...statusFilter.where].length
+    ? `WHERE ${[...baseWhere, ...statusFilter.where].join(" AND ")}`
+    : "";
   const joinSql = "LEFT JOIN test_assignments ta ON ta.employee_id = e.id AND ta.test_id = ?";
-  const queryValues = [selectedTestId, ...baseValues];
+  const queryValues = [selectedTestId, ...baseValues, ...statusFilter.values];
 
   const countRows = await queryRows<CountRow[]>(
     `
@@ -233,7 +249,13 @@ export async function GET(request: Request) {
   const page = Math.min(requestedPage, totalPages);
   const offset = (page - 1) * pageSize;
 
-  const [summaryRows, employeeRows] = await Promise.all([
+  const selectionFilter = buildStatusFilter(selectionStatus);
+  const selectionWhereSql = [...baseWhere, ...selectionFilter.where].length
+    ? `WHERE ${[...baseWhere, ...selectionFilter.where].join(" AND ")}`
+    : "";
+  const selectionValues = [selectedTestId, ...baseValues, ...selectionFilter.values];
+
+  const [summaryRows, employeeRows, selectionRows] = await Promise.all([
     queryRows<SummaryRow[]>(
       `
       SELECT
@@ -249,7 +271,7 @@ export async function GET(request: Request) {
       ${joinSql}
       WHERE ${baseWhere.join(" AND ")}
       `,
-      [selectedTestId, ...baseValues.slice(0, baseValues.length - (ASSIGNMENT_STATUSES.has(status) ? 1 : 0))]
+      [selectedTestId, ...baseValues]
     ),
     queryRows<EmployeeAssignmentRow[]>(
       `
@@ -280,7 +302,23 @@ export async function GET(request: Request) {
       LIMIT ${pageSize} OFFSET ${offset}
       `,
       queryValues
-    )
+    ),
+    includeSelectionIds
+      ? queryRows<EmployeeIdRow[]>(
+          `
+          SELECT e.id
+          FROM employees e
+          JOIN departments d ON d.id = e.department_id
+          ${joinSql}
+          ${selectionWhereSql}
+          ORDER BY
+            ta.id IS NULL DESC,
+            d.id ASC,
+            e.full_name ASC
+          `,
+          selectionValues
+        )
+      : Promise.resolve([])
   ]);
 
   const summary = summaryRows[0];
@@ -305,7 +343,8 @@ export async function GET(request: Request) {
       pageSize,
       total,
       totalPages
-    }
+    },
+    selectionEmployeeIds: selectionRows.map((row) => Number(row.id))
   });
 }
 

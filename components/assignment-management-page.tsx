@@ -52,6 +52,7 @@ type AssignmentResponse = {
   selectedTestId: number | null;
   selectedTestPassScore: number | null;
   employees: AssignableEmployee[];
+  selectionEmployeeIds?: number[];
   summary: {
     totalEmployees: number;
     assignedCount: number;
@@ -125,6 +126,7 @@ export function AssignmentManagementPage() {
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
 
   const selectedTestId = testId || (data?.selectedTestId ? String(data.selectedTestId) : "");
   const selectedPassScore =
@@ -136,19 +138,23 @@ export function AssignmentManagementPage() {
   const endItem = pagination.total ? Math.min(pagination.total, startItem + visibleCount - 1) : 0;
   const pageNumbers = getPageNumbers(pagination.page, totalPages);
   const selectedEmployees = data?.employees.filter((employee) => selectedEmployeeIds.includes(employee.id)) ?? [];
-  const visibleEmployeeIds = data?.employees.map((employee) => employee.id) ?? [];
-  const allVisibleSelected = visibleEmployeeIds.length > 0 && visibleEmployeeIds.every((id) => selectedEmployeeIds.includes(id));
+  const allMatchingSelected = pagination.total > 0 && selectedEmployeeIds.length >= pagination.total;
 
-  async function loadAssignments(targetPage = page) {
-    setIsLoading(true);
-    setError("");
-
+  function buildAssignmentParams(targetPage = page) {
     const params = new URLSearchParams();
     if (selectedTestId) params.set("testId", selectedTestId);
     if (departmentId) params.set("departmentId", departmentId);
     if (status) params.set("status", status);
     if (search.trim()) params.set("search", search.trim());
     params.set("page", String(targetPage));
+    return params;
+  }
+
+  async function loadAssignments(targetPage = page) {
+    setIsLoading(true);
+    setError("");
+
+    const params = buildAssignmentParams(targetPage);
 
     try {
       const response = await fetch(`/api/admin/assignments?${params.toString()}`, { cache: "no-store" });
@@ -179,6 +185,8 @@ export function AssignmentManagementPage() {
   }, [departmentId, page, status, testId]);
 
   function applyFilters() {
+    setSelectedEmployeeIds([]);
+
     if (page === 1) {
       loadAssignments(1);
       return;
@@ -193,18 +201,48 @@ export function AssignmentManagementPage() {
     );
   }
 
-  function toggleVisibleEmployees() {
-    setSelectedEmployeeIds((current) => {
-      if (allVisibleSelected) {
-        return current.filter((id) => !visibleEmployeeIds.includes(id));
+  async function loadSelectionEmployeeIds(selectionStatus = status) {
+    setIsSelectingAll(true);
+    setError("");
+
+    const params = buildAssignmentParams(page);
+    params.set("includeSelectionIds", "1");
+    if (selectionStatus) {
+      params.set("selectionStatus", selectionStatus);
+    }
+
+    try {
+      const response = await fetch(`/api/admin/assignments?${params.toString()}`, { cache: "no-store" });
+      const responseData = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setError(responseData?.error ?? "Không thể tải danh sách nhân sự cần chọn.");
+        return [];
       }
 
-      return [...new Set([...current, ...visibleEmployeeIds])];
-    });
+      return Array.isArray(responseData?.selectionEmployeeIds)
+        ? responseData.selectionEmployeeIds.filter((id: unknown) => Number.isInteger(Number(id))).map(Number)
+        : [];
+    } catch {
+      setError("Không thể kết nối hệ thống.");
+      return [];
+    } finally {
+      setIsSelectingAll(false);
+    }
   }
 
-  function selectUnassignedVisible() {
-    const ids = (data?.employees ?? []).filter((employee) => !employee.assignmentId).map((employee) => employee.id);
+  async function toggleAllEmployees() {
+    if (allMatchingSelected) {
+      setSelectedEmployeeIds([]);
+      return;
+    }
+
+    const ids = await loadSelectionEmployeeIds(status);
+    setSelectedEmployeeIds(ids);
+  }
+
+  async function selectUnassignedEmployees() {
+    const ids = await loadSelectionEmployeeIds("unassigned");
     setSelectedEmployeeIds((current) => [...new Set([...current, ...ids])]);
   }
 
@@ -357,6 +395,7 @@ export function AssignmentManagementPage() {
           value={departmentId}
           onChange={(event) => {
             setDepartmentId(event.target.value);
+            setSelectedEmployeeIds([]);
             setPage(1);
           }}
         >
@@ -371,6 +410,7 @@ export function AssignmentManagementPage() {
           value={status}
           onChange={(event) => {
             setStatus(event.target.value);
+            setSelectedEmployeeIds([]);
             setPage(1);
           }}
         >
@@ -394,20 +434,22 @@ export function AssignmentManagementPage() {
         <div>
           <strong>{selectedEmployeeIds.length} nhân sự đã chọn</strong>
           <span>
-            {selectedEmployees.slice(0, 3).map((employee) => employee.fullName).join(", ")}
-            {selectedEmployeeIds.length > 3 ? ` và ${selectedEmployeeIds.length - 3} người khác` : ""}
+            {allMatchingSelected
+              ? `Đã chọn toàn bộ ${pagination.total} nhân sự theo bộ lọc`
+              : selectedEmployees.slice(0, 3).map((employee) => employee.fullName).join(", ")}
+            {!allMatchingSelected && selectedEmployeeIds.length > 3 ? ` và ${selectedEmployeeIds.length - 3} người khác` : ""}
           </span>
         </div>
-        <button className="outline-button" onClick={toggleVisibleEmployees} disabled={!visibleEmployeeIds.length}>
-          {allVisibleSelected ? "Bỏ chọn trang này" : "Chọn trang này"}
+        <button className="outline-button" onClick={toggleAllEmployees} disabled={!pagination.total || isSelectingAll}>
+          {isSelectingAll ? "Đang chọn..." : allMatchingSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
         </button>
-        <button className="outline-button" onClick={selectUnassignedVisible} disabled={!visibleEmployeeIds.length}>
-          Chọn chưa giao
+        <button className="outline-button" onClick={selectUnassignedEmployees} disabled={!(data?.summary.unassignedCount ?? 0) || isSelectingAll}>
+          Chọn tất cả chưa giao
         </button>
-        <button className="primary-button" onClick={() => submitAction("assign")} disabled={isSubmitting || !selectedEmployeeIds.length}>
+        <button className="primary-button" onClick={() => submitAction("assign")} disabled={isSubmitting || isSelectingAll || !selectedEmployeeIds.length}>
           <Send size={17} /> Giao test
         </button>
-        <button className="warm-button" onClick={() => submitAction("remind")} disabled={isSubmitting || !selectedEmployeeIds.length}>
+        <button className="warm-button" onClick={() => submitAction("remind")} disabled={isSubmitting || isSelectingAll || !selectedEmployeeIds.length}>
           <Bell size={17} /> Gửi nhắc nhở
         </button>
       </section>
