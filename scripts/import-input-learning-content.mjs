@@ -189,12 +189,6 @@ function readDocxParagraphObjects(inputPath) {
   }
 }
 
-function readDocxParagraphs(inputPath) {
-  return readDocxParagraphObjects(inputPath)
-    .map((paragraph) => paragraph.text)
-    .filter(Boolean);
-}
-
 function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -229,6 +223,22 @@ function isImageOnlyParagraph(paragraph) {
 
 function withoutExtension(filePath) {
   return path.basename(filePath, path.extname(filePath));
+}
+
+function childDirectory(parentDir, canonicalName) {
+  if (!existsSync(parentDir)) {
+    return null;
+  }
+
+  const expected = canonicalTitle(canonicalName);
+  for (const name of readdirSync(parentDir)) {
+    const filePath = path.join(parentDir, name);
+    if (statSync(filePath).isDirectory() && canonicalTitle(name) === expected) {
+      return filePath;
+    }
+  }
+
+  return null;
 }
 
 function titleFromQuestionFile(filePath) {
@@ -327,27 +337,33 @@ function parseOptions(lines, questionLabel) {
 }
 
 function parseHcnsQuestions(filePath) {
-  const paragraphs = readDocxParagraphs(filePath);
+  const paragraphs = readDocxParagraphObjects(filePath);
   const questions = [];
   let currentGroup = "Cau hoi";
 
   for (let index = 0; index < paragraphs.length; index += 1) {
     const paragraph = paragraphs[index];
-    if (isRomanSection(paragraph)) {
-      currentGroup = paragraph;
+    const text = paragraphText(paragraph);
+    if (isRomanSection(text)) {
+      currentGroup = text;
       continue;
     }
 
-    const questionMatch = matchHcnsQuestion(paragraph);
+    const questionMatch = matchHcnsQuestion(text);
     if (!questionMatch) {
       continue;
     }
 
     const questionNumber = Number(questionMatch[1]);
     const optionLines = [];
+    const imageRefs = [...paragraphImages(paragraph)];
     index += 1;
-    while (index < paragraphs.length && !isAnswerLine(paragraphs[index])) {
-      optionLines.push(paragraphs[index]);
+    while (index < paragraphs.length && !isAnswerLine(paragraphText(paragraphs[index]))) {
+      const optionText = paragraphText(paragraphs[index]);
+      if (optionText) {
+        optionLines.push(optionText);
+      }
+      imageRefs.push(...paragraphImages(paragraphs[index]));
       index += 1;
     }
 
@@ -355,21 +371,25 @@ function parseHcnsQuestions(filePath) {
       throw new Error(`${path.basename(filePath)} question ${questionNumber}: missing answer line.`);
     }
 
-    const correctLabel = answerLabel(paragraphs[index]);
+    const correctLabel = answerLabel(paragraphText(paragraphs[index]));
     const explanationParts = [];
     while (
       index + 1 < paragraphs.length &&
-      !isHcnsQuestionLine(paragraphs[index + 1]) &&
-      !isRomanSection(paragraphs[index + 1])
+      !isHcnsQuestionLine(paragraphText(paragraphs[index + 1])) &&
+      !isRomanSection(paragraphText(paragraphs[index + 1]))
     ) {
       index += 1;
-      explanationParts.push(paragraphs[index]);
+      const explanationText = paragraphText(paragraphs[index]);
+      if (explanationText) {
+        explanationParts.push(explanationText);
+      }
     }
 
     questions.push({
       number: questionNumber,
       groupName: currentGroup,
       questionText: cleanText(questionMatch[2]),
+      imageRefs,
       explanation: cleanText(explanationParts.join(" ")) || null,
       difficulty: "medium",
       options: parseOptions(optionLines, questionNumber).map((option) => ({
@@ -621,6 +641,49 @@ function buildHcnsBundles() {
   return bundles.sort((left, right) => left.code.localeCompare(right.code));
 }
 
+function buildCombinedHcnsBundle() {
+  const hcnsRoot = path.join(inputRoot, "HCNS");
+  const questionDir = childDirectory(hcnsRoot, "Cau hoi") ?? hcnsRoot;
+  const materialDir = childDirectory(hcnsRoot, "Tai lieu") ?? hcnsRoot;
+  const questionFiles = walkFiles(questionDir)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".docx")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  const materialFiles = walkFiles(materialDir)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".pdf")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+
+  if (!questionFiles.length) {
+    throw new Error("Missing HCNS question DOCX files.");
+  }
+
+  if (!materialFiles.length) {
+    throw new Error("Missing HCNS material PDF files.");
+  }
+
+  const questions = [];
+  for (const questionFile of questionFiles) {
+    const sourceTitle = titleFromQuestionFile(questionFile);
+    const parsedQuestions = parseHcnsQuestions(questionFile);
+    for (const question of parsedQuestions) {
+      questions.push({
+        ...question,
+        groupName: cleanText(`${sourceTitle} - ${question.groupName}`)
+      });
+    }
+  }
+
+  return {
+    family: "HCNS",
+    code: "HCNS_ALL",
+    title: "HCNS - T\u1ed5ng h\u1ee3p",
+    description: `Imported from ${path.relative(root, questionDir)} and ${path.relative(root, materialDir)}.`,
+    departmentKey: "HCNS",
+    materialFiles,
+    questionFiles,
+    questions
+  };
+}
+
 function buildQhseBundles() {
   const qhseRoot = path.join(inputRoot, "QHSE");
   const files = walkFiles(qhseRoot);
@@ -656,6 +719,40 @@ function buildQhseBundles() {
       questions: part.questions
     };
   });
+}
+
+function buildCombinedQhseBundle() {
+  const qhseRoot = path.join(inputRoot, "QHSE");
+  const questionDir = childDirectory(qhseRoot, "Cau hoi") ?? qhseRoot;
+  const materialDir = childDirectory(qhseRoot, "Tai lieu") ?? qhseRoot;
+  const materialFiles = walkFiles(materialDir)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".pdf")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  const questionFiles = walkFiles(questionDir)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".docx")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  const questionFile =
+    questionFiles.find((filePath) => ascii(path.basename(filePath)).startsWith("cau")) ?? questionFiles[0];
+
+  if (!questionFile) {
+    throw new Error("Missing QHSE question DOCX.");
+  }
+
+  if (!materialFiles.length) {
+    throw new Error("Missing QHSE material PDF files.");
+  }
+
+  const parts = parseQhseParts(questionFile);
+  return {
+    family: "QHSE",
+    code: "QHSE_ALL",
+    title: "QHSE - T\u1ed5ng h\u1ee3p",
+    description: `Imported from ${path.relative(root, questionDir)} and ${path.relative(root, materialDir)}.`,
+    departmentKey: "QHSE",
+    materialFiles,
+    questionFiles: [questionFile],
+    questions: parts.flatMap((part) => part.questions)
+  };
 }
 
 async function hashFile(filePath) {
@@ -874,6 +971,59 @@ async function linkMaterial(connection, testId, materialId) {
   ]);
 }
 
+async function linkMaterials(connection, testId, materialIds) {
+  await connection.execute("DELETE FROM test_materials WHERE test_id = ?", [testId]);
+
+  if (!materialIds.length) {
+    return;
+  }
+
+  await connection.query("INSERT INTO test_materials (test_id, material_id, sort_order) VALUES ?", [
+    materialIds.map((materialId, index) => [testId, materialId, index + 1])
+  ]);
+}
+
+function materialTitleForBundle(bundle, filePath) {
+  if (bundle.materialTitle) {
+    return bundle.materialTitle;
+  }
+
+  const title = bundle.family === "HCNS" ? titleFromHcnsPdf(filePath) : titleFromNumberedPdf(filePath);
+  return `${bundle.family} - ${title}`;
+}
+
+function materialItemsForBundle(bundle) {
+  const materialFiles = bundle.materialFiles ?? (bundle.materialFile ? [bundle.materialFile] : []);
+  return materialFiles.map((filePath, index) => ({
+    filePath,
+    title: materialTitleForBundle(bundle, filePath),
+    uploadCode: `${bundle.code}-${index + 1}`
+  }));
+}
+
+function questionFilesForBundle(bundle) {
+  return bundle.questionFiles ?? (bundle.questionFile ? [bundle.questionFile] : []);
+}
+
+async function archiveOldInputTests(connection, keepCodes) {
+  if (!keepCodes.length) {
+    return 0;
+  }
+
+  const [result] = await connection.query(
+    `
+    UPDATE tests
+    SET status = 'archived'
+    WHERE status = 'active'
+      AND code NOT IN (?)
+      AND (code LIKE 'HCNS_%' OR code LIKE 'QHSE_PART_%')
+    `,
+    [keepCodes]
+  );
+
+  return result.affectedRows ?? 0;
+}
+
 async function verifyBundle(connection, code) {
   const [rows] = await connection.query(
     `
@@ -902,7 +1052,7 @@ async function verifyBundle(connection, code) {
   return rows[0] ?? null;
 }
 
-async function importBundles(bundles, dryRun) {
+async function importBundles(bundles, dryRun, options = {}) {
   await loadEnvFile(".env");
   await loadEnvFile(".env.local");
 
@@ -914,16 +1064,21 @@ async function importBundles(bundles, dryRun) {
     return {
       dryRun,
       items: await Promise.all(
-        bundles.map(async (bundle) => ({
-          code: bundle.code,
-          title: bundle.title,
-          materialFile: path.relative(root, bundle.materialFile),
-          questionFile: path.relative(root, bundle.questionFile),
-          questions: bundle.questions.length,
-          questionImages: bundle.questions.filter((question) => question.imageUrl).length,
-          groups: new Set(bundle.questions.map((question) => question.groupName)).size,
-          contentUrl: await copyMaterialFile(bundle.materialFile, bundle.code, true)
-        }))
+        bundles.map(async (bundle) => {
+          const materialItems = materialItemsForBundle(bundle);
+          return {
+            code: bundle.code,
+            title: bundle.title,
+            materialFiles: materialItems.map((item) => path.relative(root, item.filePath)),
+            questionFiles: questionFilesForBundle(bundle).map((filePath) => path.relative(root, filePath)),
+            questions: bundle.questions.length,
+            questionImages: bundle.questions.filter((question) => question.imageUrl).length,
+            groups: new Set(bundle.questions.map((question) => question.groupName)).size,
+            contentUrls: await Promise.all(
+              materialItems.map((item) => copyMaterialFile(item.filePath, item.uploadCode, true))
+            )
+          };
+        })
       )
     };
   }
@@ -940,13 +1095,36 @@ async function importBundles(bundles, dryRun) {
         throw new Error(`Missing department for ${bundle.departmentKey}.`);
       }
 
-      const contentUrl = await copyMaterialFile(bundle.materialFile, bundle.code, false);
+      const materialItems = materialItemsForBundle(bundle);
+      const materialInputs = [];
+      for (const item of materialItems) {
+        materialInputs.push({
+          ...item,
+          contentUrl: await copyMaterialFile(item.filePath, item.uploadCode, false)
+        });
+      }
 
       await connection.beginTransaction();
       try {
-        const materialId = await ensureMaterial(connection, bundle, departmentId, creatorId, contentUrl);
+        const materialIds = [];
+        for (const item of materialInputs) {
+          materialIds.push(
+            await ensureMaterial(
+              connection,
+              { ...bundle, materialTitle: item.title },
+              departmentId,
+              creatorId,
+              item.contentUrl
+            )
+          );
+        }
+
         const testId = await ensureTest(connection, bundle, departmentId, creatorId);
-        await linkMaterial(connection, testId, materialId);
+        if (materialIds.length === 1) {
+          await linkMaterial(connection, testId, materialIds[0]);
+        } else {
+          await linkMaterials(connection, testId, materialIds);
+        }
         await replaceTestQuestions(connection, testId, creatorId, bundle.questions);
         await connection.commit();
       } catch (error) {
@@ -956,13 +1134,17 @@ async function importBundles(bundles, dryRun) {
 
       summaries.push({
         ...(await verifyBundle(connection, bundle.code)),
-        contentUrl,
-        materialFile: path.relative(root, bundle.materialFile),
-        questionFile: path.relative(root, bundle.questionFile)
+        contentUrls: materialInputs.map((item) => item.contentUrl),
+        materialFiles: materialInputs.map((item) => path.relative(root, item.filePath)),
+        questionFiles: questionFilesForBundle(bundle).map((filePath) => path.relative(root, filePath))
       });
     }
 
-    return { dryRun, items: summaries };
+    const archivedTests = options.archiveOldInputTests
+      ? await archiveOldInputTests(connection, summaries.map((summary) => summary.code))
+      : 0;
+
+    return { dryRun, archivedTests, items: summaries };
   } finally {
     await connection.end();
   }
@@ -973,16 +1155,23 @@ function parseArgs(argv) {
   const onlyArg = argv.find((arg) => arg.startsWith("--only="));
   return {
     dryRun: args.has("--dry-run"),
-    only: onlyArg ? onlyArg.slice("--only=".length).toLowerCase() : "all"
+    only: onlyArg ? onlyArg.slice("--only=".length).toLowerCase() : "all",
+    combined: args.has("--combined"),
+    archiveOldInputTests: args.has("--archive-old-input-tests")
   };
 }
 
 async function main() {
-  const { dryRun, only } = parseArgs(process.argv.slice(2));
-  const bundles = [
-    ...(only === "all" || only === "hcns" ? buildHcnsBundles() : []),
-    ...(only === "all" || only === "qhse" ? buildQhseBundles() : [])
-  ];
+  const { dryRun, only, combined, archiveOldInputTests: shouldArchiveOldInputTests } = parseArgs(process.argv.slice(2));
+  const bundles = combined
+    ? [
+        ...(only === "all" || only === "hcns" ? [buildCombinedHcnsBundle()] : []),
+        ...(only === "all" || only === "qhse" ? [buildCombinedQhseBundle()] : [])
+      ]
+    : [
+        ...(only === "all" || only === "hcns" ? buildHcnsBundles() : []),
+        ...(only === "all" || only === "qhse" ? buildQhseBundles() : [])
+      ];
 
   if (!["all", "hcns", "qhse"].includes(only)) {
     throw new Error("--only must be all, hcns, or qhse.");
@@ -992,8 +1181,10 @@ async function main() {
     throw new Error("No bundles to import.");
   }
 
-  const result = await importBundles(bundles, dryRun);
-  console.log(JSON.stringify({ only, ...result }, null, 2));
+  const result = await importBundles(bundles, dryRun, {
+    archiveOldInputTests: shouldArchiveOldInputTests
+  });
+  console.log(JSON.stringify({ only, combined, ...result }, null, 2));
 }
 
 main()
