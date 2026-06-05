@@ -1,19 +1,6 @@
-import {
-  Bell,
-  CalendarDays,
-  Camera,
-  CheckCircle2,
-  Edit,
-  Lock,
-  Mail,
-  Phone,
-  Save,
-  ShieldCheck,
-  User,
-  X
-} from "lucide-react";
+import { Camera, CheckCircle2, Edit, Mail, Phone, Save, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
-import { canViewPeopleResultsUser, isAdminUser, isDepartmentManagerUser } from "@/lib/permissions";
+import { canViewPeopleResultsUser } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/types";
 import { Avatar, InfoTable } from "./shared";
 
@@ -39,12 +26,6 @@ export function ProfilePage({
     setEmail(user.email ?? "");
     setAvatarInitial(user.avatarInitial ?? "");
   }, [user]);
-
-  const roleText = isAdminUser(user)
-    ? "Admin. Toàn quyền hệ thống."
-    : isDepartmentManagerUser(user)
-      ? "Trưởng phòng. Xem kết quả nhân sự thuộc phòng mình."
-      : "Nhân sự. Chỉ xem tài liệu, làm bài và xem kết quả cá nhân.";
 
   function cancelEdit() {
     setFullName(user.fullName);
@@ -204,53 +185,6 @@ export function ProfilePage({
         </section>
       )}
 
-      <section className="settings-grid">
-        <article className="panel setting-card">
-          <Phone size={28} />
-          <div>
-            <h3>Thông tin đăng nhập</h3>
-            <p>Username theo tài khoản được cấp và mật khẩu do hệ thống cấp hoặc người dùng tự đổi.</p>
-          </div>
-          <button className="outline-button">Kiểm tra</button>
-        </article>
-        <article className="panel setting-card">
-          <ShieldCheck size={28} />
-          <div>
-            <h3>Bảo mật dữ liệu</h3>
-            <p>Dữ liệu chỉ dùng cho đào tạo nội bộ và theo dõi kết quả bài test.</p>
-          </div>
-          <button className="outline-button">Xem quyền</button>
-        </article>
-        <article className="panel setting-card">
-          <Bell size={28} />
-          <div>
-            <h3>Thông báo học tập</h3>
-            <p>Nhận nhắc nhở khi có tài liệu mới hoặc bài test sắp hết hạn.</p>
-          </div>
-          <button className="outline-button">Thiết lập</button>
-        </article>
-        <article className="panel setting-card">
-          <Lock size={28} />
-          <div>
-            <h3>Quyền truy cập</h3>
-            <p>Vai trò hiện tại: {roleText}</p>
-          </div>
-          <button className="outline-button">Chi tiết</button>
-        </article>
-      </section>
-
-      <section className="notice-panel">
-        <div>
-          <User size={20} />
-          <strong>Thông tin đăng nhập</strong>
-          <span>Nếu số điện thoại chưa đúng, cập nhật tại hồ sơ cá nhân trước khi làm bài chính thức.</span>
-        </div>
-        <div>
-          <CalendarDays size={20} />
-          <strong>Lịch sử đào tạo</strong>
-          <span>Điểm chính thức được lưu theo ngày hoàn thành và hiển thị trên dashboard HR.</span>
-        </div>
-      </section>
     </>
   );
 }
