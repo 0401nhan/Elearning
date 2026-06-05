@@ -88,7 +88,7 @@ function getPracticeExplanation(question: PracticeQuestion) {
     return explanation.replace(/^Giải thích:\s*/i, "");
   }
 
-  return "Chưa có giải thích chi tiết cho câu này. Vui lòng xem lại tài liệu học kèm theo bài test.";
+  return null;
 }
 
 function formatElapsed(totalSeconds: number) {
