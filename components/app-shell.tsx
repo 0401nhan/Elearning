@@ -91,6 +91,17 @@ export function AppShell({
     <main className="app-layout">
       <aside className="sidebar">
         <BrandMark compact />
+        <button
+          className="mobile-bottom-back-button"
+          type="button"
+          onClick={onBack}
+          disabled={!canGoBack || !onBack}
+          aria-label="Quay lại màn trước"
+          title="Quay lại"
+        >
+          <ArrowLeft size={20} />
+          <span>Quay lại</span>
+        </button>
         <nav className="side-nav">
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
