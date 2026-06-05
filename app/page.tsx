@@ -158,6 +158,7 @@ function getRestorableOfficialTest(data: MeResponse) {
 
 export default function Page() {
   const [screen, setScreen] = useState<Screen>("login");
+  const [screenHistory, setScreenHistory] = useState<Screen[]>([]);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [assignments, setAssignments] = useState<UserAssignment[]>([]);
   const [userSummary, setUserSummary] = useState<UserSummary>(emptySummary);
@@ -182,6 +183,39 @@ export default function Page() {
     }),
     [userSummary]
   );
+
+  const navigateToScreen = useCallback(
+    (nextScreen: Screen) => {
+      if (screen === nextScreen) {
+        return;
+      }
+
+      setScreenHistory((currentHistory) => {
+        if (screen === "login" || currentHistory[currentHistory.length - 1] === screen) {
+          return currentHistory;
+        }
+
+        return [...currentHistory, screen];
+      });
+      setScreen(nextScreen);
+    },
+    [screen]
+  );
+
+  const resetScreen = useCallback((nextScreen: Screen) => {
+    setScreenHistory([]);
+    setScreen(nextScreen);
+  }, []);
+
+  const goBack = useCallback(() => {
+    const previousScreen = screenHistory[screenHistory.length - 1];
+    if (!previousScreen) {
+      return;
+    }
+
+    setScreenHistory((currentHistory) => currentHistory.slice(0, -1));
+    setScreen(previousScreen);
+  }, [screenHistory]);
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -245,16 +279,16 @@ export default function Page() {
 
           if (restorableTest) {
             setSelectedTestId(restorableTest.id);
-            setScreen("official");
+            resetScreen("official");
           } else {
-            setScreen(canAccessAdminUser(data.employee) ? "admin" : "home");
+            resetScreen(canAccessAdminUser(data.employee) ? "admin" : "home");
           }
         } else {
           setUser(null);
           setAssignments([]);
           setUserSummary(emptySummary);
           setPracticeLeaderboard([]);
-          setScreen("login");
+          resetScreen("login");
         }
       } catch {
         if (isMounted) {
@@ -262,7 +296,7 @@ export default function Page() {
           setAssignments([]);
           setUserSummary(emptySummary);
           setPracticeLeaderboard([]);
-          setScreen("login");
+          resetScreen("login");
         }
       } finally {
         if (isMounted) {
@@ -276,7 +310,7 @@ export default function Page() {
     return () => {
       isMounted = false;
     };
-  }, [applyMeData]);
+  }, [applyMeData, resetScreen]);
 
   useEffect(() => {
     if (!userId) {
@@ -302,9 +336,9 @@ export default function Page() {
 
     if (restorableTest) {
       setSelectedTestId(restorableTest.id);
-      setScreen("official");
+      resetScreen("official");
     } else {
-      setScreen(canAccessAdminUser(employee) ? "admin" : "home");
+      resetScreen(canAccessAdminUser(employee) ? "admin" : "home");
     }
   }
 
@@ -316,24 +350,24 @@ export default function Page() {
     setUserSummary(emptySummary);
     setPracticeLeaderboard([]);
     setSelectedTestId(null);
-    setScreen("login");
+    resetScreen("login");
   }
 
   function openTest(testId: number) {
     setSelectedTestId(testId);
-    setScreen("test");
+    navigateToScreen("test");
   }
 
   function openPractice(testId: number) {
     const targetTest = assignedUserTests.find((item) => item.id === testId);
     if (targetTest && !canStartPracticeAttempt(targetTest)) {
       setSelectedTestId(testId);
-      setScreen("test");
+      navigateToScreen("test");
       return;
     }
 
     setSelectedTestId(testId);
-    setScreen("practice");
+    navigateToScreen("practice");
   }
 
   function openOfficial(testId: number) {
@@ -341,7 +375,7 @@ export default function Page() {
     if (targetTest && hasOfficialResult(targetTest) && !canStartOfficialAttempt(targetTest)) {
       clearActiveOfficialAttempt();
       setSelectedTestId(testId);
-      setScreen("test");
+      navigateToScreen("test");
       return;
     }
 
@@ -349,7 +383,7 @@ export default function Page() {
       saveActiveOfficialAttempt(userId, testId);
     }
     setSelectedTestId(testId);
-    setScreen("official");
+    navigateToScreen("official");
   }
 
   async function requestRetake(test: AssignedTest) {
@@ -396,7 +430,7 @@ export default function Page() {
   if (screen === "admin") {
     return canAccessAdminUser(user) ? (
       <AdminDashboard
-        setScreen={setScreen}
+        setScreen={navigateToScreen}
         user={user}
         onLogout={handleLogout}
         theme={theme}
@@ -405,10 +439,12 @@ export default function Page() {
     ) : (
       <AppShell
         currentScreen="home"
-        setScreen={setScreen}
+        setScreen={navigateToScreen}
         user={user}
         onLogout={handleLogout}
         onOpenTest={openTest}
+        canGoBack={screenHistory.length > 0}
+        onBack={goBack}
       >
         <HomeDashboard
           summary={summary}
@@ -426,10 +462,12 @@ export default function Page() {
   return (
     <AppShell
       currentScreen={screen}
-      setScreen={setScreen}
+      setScreen={navigateToScreen}
       user={user}
       onLogout={handleLogout}
       onOpenTest={openTest}
+      canGoBack={screenHistory.length > 0}
+      onBack={goBack}
     >
       {screen === "home" && (
         <HomeDashboard
@@ -469,12 +507,12 @@ export default function Page() {
       {screen === "practice" && selectedTest && (
         <PracticeScreen
           test={selectedTest}
-          onReview={() => setScreen("test")}
+          onReview={() => navigateToScreen("test")}
           onOfficial={() => openOfficial(selectedTest.id)}
           onRefreshAssignments={reloadUserData}
         />
       )}
-      {screen === "results" && <ResultsPage onReview={() => setScreen("practice")} />}
+      {screen === "results" && <ResultsPage onReview={() => navigateToScreen("practice")} />}
       {screen === "leaderboard" && <PracticeLeaderboardPage leaderboard={practiceLeaderboard} user={user} />}
       {screen === "profile" && <ProfilePage user={user} onUserUpdate={setUser} />}
       {screen === "notifications" && <NotificationsPage onOpenTest={openTest} />}
@@ -487,7 +525,7 @@ export default function Page() {
           onAttemptFinished={finishActiveOfficialAttempt}
           onHome={() => {
             clearActiveOfficialAttempt();
-            setScreen("home");
+            navigateToScreen("home");
           }}
           onRefreshAssignments={reloadUserData}
         />

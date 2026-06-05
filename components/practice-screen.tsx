@@ -73,6 +73,24 @@ function getCorrectOption(question: PracticeQuestion | undefined) {
   return question?.answers.find((answer) => answer.is_correct);
 }
 
+function formatOptionSummary(option: AnswerOption | undefined) {
+  if (!option) {
+    return "";
+  }
+
+  const text = option.option_text.trim();
+  return text ? `${option.option_label}. ${text}` : option.option_label;
+}
+
+function getPracticeExplanation(question: PracticeQuestion) {
+  const explanation = question.explanation?.trim();
+  if (explanation) {
+    return explanation.replace(/^Giải thích:\s*/i, "");
+  }
+
+  return "Chưa có giải thích chi tiết cho câu này. Vui lòng xem lại tài liệu học kèm theo bài test.";
+}
+
 function formatElapsed(totalSeconds: number) {
   const safeSeconds = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(safeSeconds / 3600);
@@ -111,7 +129,9 @@ export function PracticeScreen({
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const activeQuestionRef = useRef<HTMLDivElement | null>(null);
+  const activeFeedbackRef = useRef<HTMLDivElement | null>(null);
   const pendingQuestionFocusRef = useRef(false);
+  const pendingFeedbackFocusRef = useRef(false);
   const focusActiveQuestion = useCallback(() => {
     window.requestAnimationFrame(() => {
       const element = activeQuestionRef.current;
@@ -121,6 +141,22 @@ export function PracticeScreen({
 
       element.focus({ preventScroll: true });
       element.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+    });
+  }, []);
+  const focusActiveFeedback = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const element = activeFeedbackRef.current;
+      if (!element) {
+        return;
+      }
+
+      const isSmallScreen = window.matchMedia("(max-width: 820px)").matches;
+      element.focus({ preventScroll: true });
+      element.scrollIntoView({
+        behavior: "smooth",
+        block: isSmallScreen ? "center" : "nearest",
+        inline: "nearest"
+      });
     });
   }, []);
 
@@ -133,6 +169,10 @@ export function PracticeScreen({
   const activeSelectedOption = getSelectedOption(activeQuestion, activeAnswerId);
   const activeCorrectOption = revealPracticeAnswers ? getCorrectOption(activeQuestion) : undefined;
   const activeIsCorrect = revealPracticeAnswers && Boolean(activeSelectedOption?.is_correct);
+  const activeExplanation =
+    revealPracticeAnswers && activeQuestion
+      ? getPracticeExplanation(activeQuestion)
+      : null;
   const checkedCount = useMemo(
     () => questions.filter((question) => checkedQuestions[question.id]).length,
     [checkedQuestions, questions]
@@ -209,6 +249,15 @@ export function PracticeScreen({
     pendingQuestionFocusRef.current = false;
     focusActiveQuestion();
   }, [activeQuestion, focusActiveQuestion]);
+
+  useEffect(() => {
+    if (!pendingFeedbackFocusRef.current || !activeQuestion || !activeIsChecked) {
+      return;
+    }
+
+    pendingFeedbackFocusRef.current = false;
+    focusActiveFeedback();
+  }, [activeIsChecked, activeQuestion, focusActiveFeedback]);
 
   async function submitPractice() {
     if (!canSubmit) {
@@ -294,6 +343,7 @@ export function PracticeScreen({
     const pulseTone = revealPracticeAnswers ? (selectedAnswer?.is_correct ? "correct" : "wrong") : "selected";
 
     setError("");
+    pendingFeedbackFocusRef.current = true;
     setCheckedQuestions((current) => ({ ...current, [questionId]: true }));
     setAnswerPulse({ questionId, answerId, tone: pulseTone });
 
@@ -445,6 +495,7 @@ export function PracticeScreen({
                   const selectedOption = getSelectedOption(question, answers[question.id]);
                   const correctOption = revealPracticeAnswers ? getCorrectOption(question) : undefined;
                   const ok = revealPracticeAnswers && Boolean(selectedOption?.is_correct);
+                  const explanation = revealPracticeAnswers ? getPracticeExplanation(question) : null;
 
                   return (
                     <article
@@ -472,7 +523,7 @@ export function PracticeScreen({
                         </span>
                         {revealPracticeAnswers && correctOption && (
                           <span>
-                            Đáp án đúng: {correctOption.option_label}. {correctOption.option_text}
+                            Đáp án đúng: {formatOptionSummary(correctOption)}
                           </span>
                         )}
                         {selectedOption?.image_url && (
@@ -489,7 +540,11 @@ export function PracticeScreen({
                             variant="answer"
                           />
                         )}
-                        {revealPracticeAnswers && question.explanation && <small>{question.explanation}</small>}
+                        {explanation && (
+                          <small>
+                            <strong>Giải thích:</strong> {explanation}
+                          </small>
+                        )}
                       </div>
                     </article>
                   );
@@ -569,13 +624,17 @@ export function PracticeScreen({
                   </div>
 
                   {revealPracticeAnswers && activeIsChecked && (
-                    <div className={`practice-feedback ${activeIsCorrect ? "correct" : "wrong"}`}>
+                    <div
+                      ref={activeFeedbackRef}
+                      className={`practice-feedback ${activeIsCorrect ? "correct" : "wrong"}`}
+                      tabIndex={-1}
+                    >
                       {activeIsCorrect ? <CheckCircle2 size={22} /> : <X size={22} />}
                       <div>
                         <strong>{activeIsCorrect ? "Đúng" : "Chưa đúng"}</strong>
                         {activeCorrectOption && (
                           <p>
-                            Đáp án đúng: {activeCorrectOption.option_label}. {activeCorrectOption.option_text}
+                            <strong>Đáp án đúng:</strong> {formatOptionSummary(activeCorrectOption)}
                           </p>
                         )}
                         {activeCorrectOption?.image_url && (
@@ -585,7 +644,11 @@ export function PracticeScreen({
                             variant="answer"
                           />
                         )}
-                        {activeQuestion.explanation && <p>{activeQuestion.explanation}</p>}
+                        {activeExplanation && (
+                          <p>
+                            <strong>Giải thích:</strong> {activeExplanation}
+                          </p>
+                        )}
                       </div>
                     </div>
                   )}

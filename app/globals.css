@@ -571,6 +571,42 @@ button:disabled {
   flex: 1;
 }
 
+.header-back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0 12px;
+  border: 1px solid #d5e4fb;
+  border-radius: 8px;
+  color: #0f5bd8;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.header-back-button svg {
+  flex-shrink: 0;
+}
+
+.header-back-button:not(:disabled):hover {
+  border-color: #9fc0ff;
+  color: #084ab0;
+  background: #eef5ff;
+}
+
+.header-back-button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
 .icon-button,
 .notification-button,
 .table-icon {
@@ -3194,7 +3230,11 @@ dd {
   background: #fff1f2;
 }
 
-.practice-feedback strong {
+.practice-feedback > div {
+  min-width: 0;
+}
+
+.practice-feedback > div > strong {
   display: block;
   margin-bottom: 4px;
   font-size: 16px;
@@ -3202,6 +3242,14 @@ dd {
 
 .practice-feedback p {
   margin: 0 0 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.practice-feedback p strong {
+  display: inline;
+  margin: 0;
+  font-size: inherit;
 }
 
 .practice-feedback p:last-child {
@@ -3414,6 +3462,12 @@ dd {
   color: #52658f;
   font-weight: 600;
   line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.practice-review-list small strong {
+  display: inline;
 }
 
 .official-exam-page {
@@ -6553,6 +6607,16 @@ td:nth-child(2) {
     box-shadow: 0 8px 18px rgba(7, 25, 74, 0.06);
   }
 
+  .header-back-button {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+  }
+
+  .header-back-button span {
+    display: none;
+  }
+
   .admin-header > div:first-child {
     min-width: 0;
   }
@@ -7057,6 +7121,13 @@ td:nth-child(2) {
 
   .practice-main-panel .practice-question-item {
     padding: 12px;
+  }
+
+  .practice-feedback {
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px;
+    scroll-margin-top: 78px;
   }
 
   .practice-main-panel .practice-question-item > p {

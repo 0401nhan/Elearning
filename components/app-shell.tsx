@@ -1,4 +1,4 @@
-import { Bell, BookOpen, CheckCircle2, GraduationCap, Mail, RefreshCw, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Bell, BookOpen, CheckCircle2, GraduationCap, Mail, RefreshCw, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { navItems } from "@/lib/mock-data";
 import { canAccessAdminUser } from "@/lib/permissions";
@@ -54,6 +54,8 @@ export function AppShell({
   user,
   onLogout,
   onOpenTest,
+  canGoBack = false,
+  onBack,
   children
 }: {
   currentScreen: Screen;
@@ -61,6 +63,8 @@ export function AppShell({
   user: SessionUser;
   onLogout: () => void;
   onOpenTest: (testId: number) => void;
+  canGoBack?: boolean;
+  onBack?: () => void;
   children: React.ReactNode;
 }) {
   const visibleNavItems = navItems.filter((item) => item.screen !== "admin" || canAccessAdminUser(user));
@@ -119,6 +123,8 @@ export function AppShell({
           onOpenProfile={() => setScreen("profile")}
           onOpenNotifications={() => setScreen("notifications")}
           onOpenTest={onOpenTest}
+          canGoBack={canGoBack}
+          onBack={onBack}
         />
         <div className="content">{children}</div>
       </section>
@@ -132,7 +138,9 @@ function HeaderBar({
   onLogout,
   onOpenProfile,
   onOpenNotifications,
-  onOpenTest
+  onOpenTest,
+  canGoBack = false,
+  onBack
 }: {
   user: SessionUser;
   unreadCount: number;
@@ -140,6 +148,8 @@ function HeaderBar({
   onOpenProfile: () => void;
   onOpenNotifications: () => void;
   onOpenTest: (testId: number) => void;
+  canGoBack?: boolean;
+  onBack?: () => void;
 }) {
   const [isNoticeOpen, setIsNoticeOpen] = useState(false);
   const [noticeData, setNoticeData] = useState<NotificationPreviewResponse | null>(null);
@@ -240,6 +250,17 @@ function HeaderBar({
 
   return (
     <header className="topbar">
+      <button
+        className="header-back-button"
+        type="button"
+        onClick={onBack}
+        disabled={!canGoBack || !onBack}
+        aria-label="Quay lại màn trước"
+        title="Quay lại"
+      >
+        <ArrowLeft size={18} />
+        <span>Quay lại</span>
+      </button>
       <div className="topbar-spacer" />
       <div className="admin-notice-menu notification-preview-menu" ref={menuRef}>
         <button
