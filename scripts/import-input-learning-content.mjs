@@ -280,6 +280,11 @@ function codeFromQhsePart(partNumber) {
   return `QHSE_PART_${String(partNumber).padStart(2, "0")}`;
 }
 
+function boundedText(value, maxLength) {
+  const text = cleanText(value);
+  return text.length > maxLength ? text.slice(0, maxLength).trimEnd() : text;
+}
+
 function answerLabel(line) {
   const match = /dap an(?:\s+dung)?\s*:?\s*([A-D])/i.exec(ascii(paragraphText(line)));
   return match?.[1]?.toUpperCase() ?? null;
@@ -291,6 +296,15 @@ function isAnswerLine(line) {
 
 function isHcnsQuestionLine(line) {
   return /^cau\s+\d+\./i.test(ascii(line));
+}
+
+function genericQuestionNumber(line) {
+  const match = /^cau\s+(\d+)\b/i.exec(ascii(paragraphText(line)));
+  return match ? Number(match[1]) : null;
+}
+
+function isGenericQuestionLine(line) {
+  return genericQuestionNumber(line) !== null;
 }
 
 function matchHcnsQuestion(line) {
@@ -414,6 +428,10 @@ function getQhsePartNumber(line) {
 
 function startsOptionA(line) {
   return /^A\.\s*/.test(cleanText(paragraphText(line)));
+}
+
+function startsAnyOption(line) {
+  return /^[A-D]\.\s*/.test(cleanText(paragraphText(line)));
 }
 
 function tryParseOptions(lines, questionLabel) {
@@ -573,6 +591,118 @@ function parseQhseParts(filePath) {
   }
 
   return parts;
+}
+
+function genericInlineQuestionText(line) {
+  const text = paragraphText(line);
+  const inlineText = cleanText(text.replace(/^\S+\s+\d+\b\s*[:.)-]?\s*/u, ""));
+  return inlineText === text ? "" : inlineText;
+}
+
+function isGenericExplanationHeading(line) {
+  const normalized = ascii(paragraphText(line))
+    .replace(/[^a-z ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized === "giai thich";
+}
+
+function stripGenericExplanationHeading(line) {
+  return isGenericExplanationHeading(line) ? "" : paragraphText(line);
+}
+
+function inferGenericGroupName(explanationParts, fallback) {
+  const text = explanationParts.join(" ");
+  const quotedMatch = /Theo\s+(?:tài liệu|quy trình)\s+"([^"]+)"/iu.exec(text);
+  if (quotedMatch?.[1]) {
+    return boundedText(
+      quotedMatch[1]
+        .replace(/\s*\([^)]*Mã tài liệu[^)]*\)\s*/iu, " ")
+        .replace(/\s*\([^)]*\)\s*$/u, " "),
+      180
+    );
+  }
+
+  return boundedText(fallback, 180);
+}
+
+function parseGenericQuestions(filePath, defaultGroupName) {
+  const paragraphs = readDocxParagraphObjects(filePath);
+  const questions = [];
+  let sequenceNumber = 1;
+
+  for (let index = 0; index < paragraphs.length; index += 1) {
+    const sourceNumber = genericQuestionNumber(paragraphs[index]);
+    if (sourceNumber === null) {
+      continue;
+    }
+
+    const questionParts = [];
+    const imageRefs = [...paragraphImages(paragraphs[index])];
+    const inlineQuestionText = genericInlineQuestionText(paragraphs[index]);
+    if (inlineQuestionText) {
+      questionParts.push(inlineQuestionText);
+    }
+
+    index += 1;
+    while (
+      index < paragraphs.length &&
+      !startsAnyOption(paragraphs[index]) &&
+      !isAnswerLine(paragraphs[index]) &&
+      !isGenericQuestionLine(paragraphs[index])
+    ) {
+      const questionText = paragraphText(paragraphs[index]);
+      if (questionText) {
+        questionParts.push(questionText);
+      }
+      imageRefs.push(...paragraphImages(paragraphs[index]));
+      index += 1;
+    }
+
+    const optionLines = [];
+    while (index < paragraphs.length && !isAnswerLine(paragraphs[index]) && !isGenericQuestionLine(paragraphs[index])) {
+      const optionText = paragraphText(paragraphs[index]);
+      if (optionText) {
+        optionLines.push(optionText);
+      }
+      imageRefs.push(...paragraphImages(paragraphs[index]));
+      index += 1;
+    }
+
+    if (index >= paragraphs.length || !isAnswerLine(paragraphs[index])) {
+      throw new Error(`${path.basename(filePath)} question ${sourceNumber}: missing answer line.`);
+    }
+
+    const correctLabel = answerLabel(paragraphs[index]);
+    const explanationParts = [];
+    index += 1;
+    while (index < paragraphs.length && !isGenericQuestionLine(paragraphs[index])) {
+      const explanationText = cleanText(stripGenericExplanationHeading(paragraphs[index]));
+      if (explanationText) {
+        explanationParts.push(explanationText);
+      }
+      index += 1;
+    }
+
+    questions.push({
+      number: sequenceNumber,
+      groupName: inferGenericGroupName(explanationParts, defaultGroupName),
+      questionText: cleanText(questionParts.join(" ")),
+      imageRefs,
+      explanation: cleanText(explanationParts.join(" ")) || null,
+      difficulty: "medium",
+      options: parseOptions(optionLines, sourceNumber).map((option) => ({
+        ...option,
+        isCorrect: option.label === correctLabel
+      }))
+    });
+
+    sequenceNumber += 1;
+    index -= 1;
+  }
+
+  validateQuestions(filePath, questions);
+  return questions;
 }
 
 function validateQuestions(source, questions) {
@@ -755,6 +885,87 @@ function buildCombinedQhseBundle() {
   };
 }
 
+function inputDirectoryByCanonicalTitle(fragment) {
+  if (!existsSync(inputRoot)) {
+    return null;
+  }
+
+  const expected = canonicalTitle(fragment);
+  for (const name of readdirSync(inputRoot)) {
+    const filePath = path.join(inputRoot, name);
+    if (statSync(filePath).isDirectory() && canonicalTitle(name).includes(expected)) {
+      return filePath;
+    }
+  }
+
+  return null;
+}
+
+function titleFromGenericPdf(filePath) {
+  return withoutExtension(filePath).trim();
+}
+
+function buildGenericProcedureBundle(config) {
+  const bundleRoot = inputDirectoryByCanonicalTitle(config.folderTitle);
+  if (!bundleRoot) {
+    throw new Error(`Missing input folder for ${config.folderTitle}.`);
+  }
+
+  const questionFile = walkFiles(bundleRoot).find((filePath) => path.extname(filePath).toLowerCase() === ".docx");
+  if (!questionFile) {
+    throw new Error(`Missing question DOCX in ${path.relative(root, bundleRoot)}.`);
+  }
+
+  const materialDir = childDirectory(bundleRoot, "Tai lieu") ?? bundleRoot;
+  const materialFiles = walkFiles(materialDir)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".pdf")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  if (!materialFiles.length) {
+    throw new Error(`Missing PDF materials in ${path.relative(root, bundleRoot)}.`);
+  }
+
+  const title = path.basename(bundleRoot);
+  return {
+    family: config.family,
+    code: config.code,
+    title,
+    description: `Imported from ${path.relative(root, bundleRoot)}.`,
+    departmentKey: config.departmentKey,
+    allowMissingDepartment: true,
+    configuredQuestionCount: 30,
+    durationMinutes: 30,
+    materialFiles,
+    questionFiles: [questionFile],
+    materialTitlePrefix: config.materialTitlePrefix,
+    questions: parseGenericQuestions(questionFile, title)
+  };
+}
+
+function buildGenericProcedureBundles(only = "procedures") {
+  const configs = [
+    {
+      key: "dieuphoi",
+      family: "DIEUPHOI",
+      code: "DIEU_PHOI_QUY_TRINH_QUY_DINH",
+      folderTitle: "phong dieu phoi",
+      departmentKey: "DIEUPHOI",
+      materialTitlePrefix: "Điều phối"
+    },
+    {
+      key: "ktvp",
+      family: "KTVP",
+      code: "KTVP_QUY_TRINH_QUY_DINH",
+      folderTitle: "ktvp",
+      departmentKey: "KTVP",
+      materialTitlePrefix: "KTVP"
+    }
+  ];
+
+  return configs
+    .filter((config) => only === "procedures" || only === config.key)
+    .map((config) => buildGenericProcedureBundle(config));
+}
+
 async function hashFile(filePath) {
   const hash = createHash("sha256");
   hash.update(await readFile(filePath));
@@ -813,7 +1024,9 @@ async function getDepartmentIds(connection) {
       byCode.get("HANH_CHINH_NHAN_SU") ??
       byName.get("hanh chinh nhan su") ??
       null,
-    QHSE: byCode.get("QHSE") ?? byCode.get("HSE") ?? byName.get("qhse") ?? byName.get("hse") ?? null
+    QHSE: byCode.get("QHSE") ?? byCode.get("HSE") ?? byName.get("qhse") ?? byName.get("hse") ?? null,
+    KTVP: byCode.get("KTVP") ?? byName.get("ky thuat van phong") ?? null,
+    DIEUPHOI: byCode.get("DIEUPHOI") ?? byName.get("dieu phoi") ?? null
   };
 }
 
@@ -869,8 +1082,8 @@ async function ensureMaterial(connection, bundle, departmentId, creatorId, conte
 }
 
 async function ensureTest(connection, bundle, departmentId, creatorId) {
-  const questionCount = bundle.questions.length;
-  const durationMinutes = Math.max(20, Math.ceil(questionCount * 0.6));
+  const questionCount = bundle.configuredQuestionCount ?? bundle.questions.length;
+  const durationMinutes = bundle.durationMinutes ?? Math.max(20, Math.ceil(questionCount * 0.6));
 
   await connection.execute(
     `
@@ -988,8 +1201,16 @@ function materialTitleForBundle(bundle, filePath) {
     return bundle.materialTitle;
   }
 
-  const title = bundle.family === "HCNS" ? titleFromHcnsPdf(filePath) : titleFromNumberedPdf(filePath);
-  return `${bundle.family} - ${title}`;
+  if (bundle.family === "HCNS") {
+    return `HCNS - ${titleFromHcnsPdf(filePath)}`;
+  }
+
+  if (bundle.family === "QHSE") {
+    return `QHSE - ${titleFromNumberedPdf(filePath)}`;
+  }
+
+  const prefix = bundle.materialTitlePrefix ?? bundle.family;
+  return boundedText(`${prefix} - ${titleFromGenericPdf(filePath)}`, 220);
 }
 
 function materialItemsForBundle(bundle) {
@@ -1090,8 +1311,8 @@ async function importBundles(bundles, dryRun, options = {}) {
     const summaries = [];
 
     for (const bundle of bundles) {
-      const departmentId = departmentIds[bundle.departmentKey];
-      if (!departmentId) {
+      const departmentId = departmentIds[bundle.departmentKey] ?? null;
+      if (!departmentId && !bundle.allowMissingDepartment) {
         throw new Error(`Missing department for ${bundle.departmentKey}.`);
       }
 
@@ -1163,18 +1384,23 @@ function parseArgs(argv) {
 
 async function main() {
   const { dryRun, only, combined, archiveOldInputTests: shouldArchiveOldInputTests } = parseArgs(process.argv.slice(2));
-  const bundles = combined
-    ? [
-        ...(only === "all" || only === "hcns" ? [buildCombinedHcnsBundle()] : []),
-        ...(only === "all" || only === "qhse" ? [buildCombinedQhseBundle()] : [])
-      ]
-    : [
-        ...(only === "all" || only === "hcns" ? buildHcnsBundles() : []),
-        ...(only === "all" || only === "qhse" ? buildQhseBundles() : [])
-      ];
+  const bundles = [
+    ...(combined
+      ? [
+          ...(only === "all" || only === "hcns" ? [buildCombinedHcnsBundle()] : []),
+          ...(only === "all" || only === "qhse" ? [buildCombinedQhseBundle()] : [])
+        ]
+      : [
+          ...(only === "all" || only === "hcns" ? buildHcnsBundles() : []),
+          ...(only === "all" || only === "qhse" ? buildQhseBundles() : [])
+        ]),
+    ...(only === "all" || only === "procedures" || only === "dieuphoi" || only === "ktvp"
+      ? buildGenericProcedureBundles(only === "all" ? "procedures" : only)
+      : [])
+  ];
 
-  if (!["all", "hcns", "qhse"].includes(only)) {
-    throw new Error("--only must be all, hcns, or qhse.");
+  if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp"].includes(only)) {
+    throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, or ktvp.");
   }
 
   if (!bundles.length) {

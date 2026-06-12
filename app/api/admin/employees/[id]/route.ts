@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import type { ResultSetHeader } from "mysql2";
+import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { getCurrentUser, hashPassword, isAdmin } from "@/lib/auth";
-import { executeQuery, withTransaction } from "@/lib/db";
+import { withTransaction } from "@/lib/db";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -9,6 +9,10 @@ type RouteContext = {
 
 const DEFAULT_ROLE_ID = 1;
 const ALLOWED_ROLE_IDS = new Set([1, 2, 6]);
+
+type EmployeeIdRow = RowDataPacket & {
+  id: number;
+};
 
 function cleanText(value: unknown) {
   const text = String(value ?? "").trim();
@@ -157,7 +161,32 @@ export async function DELETE(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Không thể xóa chính tài khoản đang đăng nhập." }, { status: 400 });
   }
 
-  await executeQuery<ResultSetHeader>("UPDATE employees SET is_active = 0 WHERE id = ?", [employeeId]);
+  const deletedRows = await withTransaction(async (connection) => {
+    const [employeeRows] = await connection.query<EmployeeIdRow[]>(
+      "SELECT id FROM employees WHERE id = ? LIMIT 1",
+      [employeeId]
+    );
+
+    if (!employeeRows.length) {
+      return 0;
+    }
+
+    await connection.execute("UPDATE tests SET created_by = NULL WHERE created_by = ?", [employeeId]);
+    await connection.execute("UPDATE training_materials SET uploaded_by = NULL WHERE uploaded_by = ?", [employeeId]);
+    await connection.execute("UPDATE questions SET created_by = NULL WHERE created_by = ?", [employeeId]);
+    await connection.execute("UPDATE test_assignments SET assigned_by = NULL WHERE assigned_by = ?", [employeeId]);
+    await connection.execute("UPDATE retake_requests SET reviewed_by = NULL WHERE reviewed_by = ?", [employeeId]);
+    await connection.execute("UPDATE support_tickets SET assigned_to = NULL WHERE assigned_to = ?", [employeeId]);
+
+    const [deleteResult] = await connection.execute<ResultSetHeader>("DELETE FROM employees WHERE id = ?", [
+      employeeId
+    ]);
+    return deleteResult.affectedRows;
+  });
+
+  if (!deletedRows) {
+    return NextResponse.json({ error: "Nhân sự không tồn tại hoặc đã được xóa." }, { status: 404 });
+  }
 
   return NextResponse.json({ ok: true });
 }
