@@ -324,7 +324,9 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
       return;
     }
 
-    const ok = window.confirm(`Xóa nhân sự ${employee.fullName}? Tài khoản sẽ bị khóa và không đăng nhập được.`);
+    const ok = window.confirm(
+      `Xóa nhân sự ${employee.fullName}? Bản ghi sẽ bị xóa khỏi database và có thể tạo lại cùng mã/username.`
+    );
     if (!ok) {
       return;
     }
