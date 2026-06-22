@@ -460,12 +460,6 @@ export function AdminDashboard({
             </button>
           )}
         </nav>
-        <div className="sidebar-callout report-callout">
-          <BarChart3 size={58} />
-          <strong>Báo cáo tổng hợp</strong>
-          <span>Xuất báo cáo chi tiết theo nhiều tiêu chí</span>
-          <button>Tạo báo cáo</button>
-        </div>
       </aside>
 
       <section className="admin-workspace">

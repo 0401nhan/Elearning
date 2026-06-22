@@ -4955,16 +4955,6 @@ td:nth-child(2) {
   font-weight: 500;
 }
 
-.report-callout button {
-  width: 100%;
-  min-height: 38px;
-  border: 1px solid rgba(255, 255, 255, 0.32);
-  border-radius: 6px;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.06);
-  font-weight: 600;
-}
-
 .page-header {
   min-height: 86px;
   display: flex;
