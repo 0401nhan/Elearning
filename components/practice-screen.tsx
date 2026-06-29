@@ -15,7 +15,15 @@ import {
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isOfficialLocked, isOfficialPassed, officialResultLabel, officialResultTone } from "@/lib/test-state";
+import {
+  OFFICIAL_RETAKE_COOLDOWN_MESSAGE,
+  getNextOfficialAvailableAt,
+  hasOfficialCooldown,
+  isOfficialLocked,
+  isOfficialPassed,
+  officialResultLabel,
+  officialResultTone
+} from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
 import { QuestionMedia } from "./question-media";
 
@@ -187,7 +195,9 @@ export function PracticeScreen({
   const officialDone = isOfficialLocked(test);
   const officialPassed = isOfficialPassed(test);
   const officialTone = officialResultTone(test);
-  const canRestartAfterResult = Boolean(detail?.test.allow_unlimited_practice);
+  const officialCooldown = hasOfficialCooldown(test);
+  const nextOfficialAt = getNextOfficialAvailableAt(test);
+  const canRestartAfterResult = true;
   const ringValue = result ? Math.round(result.score) : completionPercent;
   const ringStyle = { "--ring-progress": `${Math.max(0, Math.min(100, ringValue))}%` } as CSSProperties;
   const streakLabel = correctStreak >= 2 ? `${correctStreak} câu đúng liên tiếp` : "Đang luyện tập";
@@ -734,16 +744,24 @@ export function PracticeScreen({
             {result ? (
               <>
                 <button className="warm-button" onClick={restartPractice} disabled={!canRestartAfterResult}>
-                  <RefreshCw size={17} /> {canRestartAfterResult ? "Làm thử lại" : "Đã hết lượt làm thử"}
+                  <RefreshCw size={17} /> Làm thử lại
                 </button>
-                <button
-                  className={officialDone ? `official-result-button ${officialTone}` : "primary-button"}
-                  onClick={onOfficial}
-                  disabled={officialDone}
-                >
-                  {officialDone ? officialPassed ? <CheckCircle2 size={17} /> : <X size={17} /> : <ShieldCheck size={17} />}
-                  {officialDone ? officialResultLabel(test) : "Làm chính thức"}
-                </button>
+                <div className="official-action-stack">
+                  <button
+                    className={officialDone ? `official-result-button ${officialTone}` : "primary-button"}
+                    onClick={onOfficial}
+                    disabled={officialDone}
+                  >
+                    {officialDone ? officialPassed ? <CheckCircle2 size={17} /> : <X size={17} /> : <ShieldCheck size={17} />}
+                    {officialDone ? officialResultLabel(test) : "Làm chính thức"}
+                  </button>
+                  {officialCooldown && (
+                    <span className="official-cooldown-note">
+                      {OFFICIAL_RETAKE_COOLDOWN_MESSAGE}
+                      {nextOfficialAt ? ` (${new Date(nextOfficialAt.replace(" ", "T")).toLocaleDateString("vi-VN")})` : ""}
+                    </span>
+                  )}
+                </div>
               </>
             ) : (
               <>

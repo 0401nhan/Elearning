@@ -13,7 +13,6 @@ type AssignmentLockRow = RowDataPacket & {
   duration_minutes: number;
   pass_score: string | number;
   max_official_attempts: number;
-  approved_retake_count: number;
   randomize_questions: number;
   randomize_answers: number;
   show_official_answers: number;
@@ -21,6 +20,9 @@ type AssignmentLockRow = RowDataPacket & {
   assignment_status: string;
   official_attempts_used: number;
   official_score: string | number | null;
+  last_official_submitted_at: string | null;
+  next_official_available_at: string | null;
+  official_cooldown_seconds: number | null;
 };
 
 type AttemptRow = RowDataPacket & {
@@ -73,10 +75,6 @@ type SavedAnswerRow = RowDataPacket & {
   question_id: number;
   selected_option_id: number | null;
 };
-
-function getOfficialAttemptLimit(assignment: Pick<AssignmentLockRow, "max_official_attempts" | "approved_retake_count">) {
-  return Number(assignment.max_official_attempts) + Number(assignment.approved_retake_count ?? 0);
-}
 
 function getQuestionLimit(value: number | string | null | undefined) {
   const questionCount = Math.floor(Number(value));
@@ -168,10 +166,13 @@ async function buildAttemptPayload(connection: PoolConnection, assignment: Assig
       title: assignment.title,
       duration_minutes: Number(assignment.duration_minutes),
       pass_score: toNumber(assignment.pass_score),
-      max_official_attempts: getOfficialAttemptLimit(assignment),
+      max_official_attempts: Number(assignment.max_official_attempts),
       official_attempts_used: Number(assignment.official_attempts_used),
       assignment_status: assignment.assignment_status,
       official_score: toNumber(assignment.official_score),
+      last_official_submitted_at: assignment.last_official_submitted_at,
+      next_official_available_at: assignment.next_official_available_at,
+      official_cooldown_seconds: toNumber(assignment.official_cooldown_seconds) ?? 0,
       show_official_answers: Boolean(assignment.show_official_answers)
     },
     questions: questionRows.map((question) => ({
@@ -214,22 +215,28 @@ export async function POST(request: Request) {
         t.duration_minutes,
         t.pass_score,
         t.max_official_attempts,
-        COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
         t.randomize_questions,
         t.randomize_answers,
         t.show_official_answers,
         t.status AS test_status,
         ta.status AS assignment_status,
         ta.official_attempts_used,
-        ta.official_score
+        ta.official_score,
+        DATE_FORMAT(latest_official.submitted_at, '%Y-%m-%d %H:%i:%s') AS last_official_submitted_at,
+        DATE_FORMAT(DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY), '%Y-%m-%d %H:%i:%s') AS next_official_available_at,
+        GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY))) AS official_cooldown_seconds
       FROM test_assignments ta
       JOIN tests t ON t.id = ta.test_id
       LEFT JOIN (
-        SELECT assignment_id, COUNT(*) AS approved_retake_count
-        FROM retake_requests
-        WHERE status = 'approved'
-        GROUP BY assignment_id
-      ) retake ON retake.assignment_id = ta.id
+        SELECT attempt.*
+        FROM test_attempts attempt
+        JOIN (
+          SELECT assignment_id, MAX(id) AS latest_attempt_id
+          FROM test_attempts
+          WHERE mode = 'official' AND submitted_at IS NOT NULL
+          GROUP BY assignment_id
+        ) latest ON latest.latest_attempt_id = attempt.id
+      ) latest_official ON latest_official.assignment_id = ta.id
       WHERE ta.employee_id = ? AND ta.test_id = ?
       FOR UPDATE
       `,
@@ -275,10 +282,16 @@ export async function POST(request: Request) {
       };
     }
 
-    const officialAttemptLimit = getOfficialAttemptLimit(assignment);
-
-    if (Number(assignment.official_attempts_used) >= officialAttemptLimit) {
-      return { status: 409 as const, body: { error: "Bài chính thức đã hết lượt làm." } };
+    const officialCooldownSeconds = Number(assignment.official_cooldown_seconds ?? 0);
+    if (assignment.assignment_status === "failed" && officialCooldownSeconds > 0) {
+      return {
+        status: 409 as const,
+        body: {
+          error: "Làm lại bài kiểm tra vào tuần sau.",
+          officialCooldownSeconds,
+          nextOfficialAvailableAt: assignment.next_official_available_at
+        }
+      };
     }
 
     const [questionRows] = await connection.query<QuestionIdRow[]>(

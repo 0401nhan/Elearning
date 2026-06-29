@@ -6,15 +6,16 @@ import {
   Eye,
   Info,
   Pencil,
-  RefreshCw,
   RotateCcw,
   ShieldCheck,
   Star,
   Target
 } from "lucide-react";
-import { useState } from "react";
 import {
+  OFFICIAL_RETAKE_COOLDOWN_MESSAGE,
   canStartPracticeAttempt,
+  getNextOfficialAvailableAt,
+  hasOfficialCooldown,
   isOfficialLocked,
   isOfficialPassed,
   officialResultLabel,
@@ -23,30 +24,13 @@ import {
 import type { AssignedTest, SessionUser, Summary } from "@/lib/types";
 import { Avatar, ProgressLine, StatCard, StatusPill } from "./shared";
 
-function hasPendingRetakeRequest(test: AssignedTest) {
-  return test.retakeRequestStatus === "pending";
-}
-
-function retakeButtonLabel(test: AssignedTest, isRequesting: boolean) {
-  if (isRequesting) {
-    return "Đang gửi";
-  }
-
-  if (test.retakeRequestStatus === "pending") {
-    return "Đã gửi yêu cầu";
-  }
-
-  return "Gửi yêu cầu thi lại";
-}
-
 export function HomeDashboard({
   summary,
   tests,
   user,
   onOpenTest,
   onPractice,
-  onOfficial,
-  onRequestRetake
+  onOfficial
 }: {
   summary: Summary;
   tests: AssignedTest[];
@@ -54,37 +38,13 @@ export function HomeDashboard({
   onOpenTest: (testId: number) => void;
   onPractice: (testId: number) => void;
   onOfficial: (testId: number) => void;
-  onRequestRetake: (test: AssignedTest) => Promise<string>;
 }) {
-  const [retakeActionTestId, setRetakeActionTestId] = useState<number | null>(null);
-  const [retakeError, setRetakeError] = useState("");
-  const [retakeSuccess, setRetakeSuccess] = useState("");
   const completionRate = summary.total ? Math.round((summary.done / summary.total) * 100) : 0;
   const pendingRate = summary.total ? Math.round((summary.pending / summary.total) * 100) : 0;
   const readAverage = tests.length ? Math.round(tests.reduce((sum, test) => sum + test.readProgress, 0) / tests.length) : 0;
   const practiceTotal = tests.reduce((sum, test) => sum + test.attempts, 0);
   const bestOfficialScore = tests.reduce((best, test) => Math.max(best, test.officialScore ?? 0), 0);
   const overallStatus = summary.done === summary.total && summary.total > 0 ? "Đã hoàn thành" : "Đang học";
-
-  async function requestRetake(test: AssignedTest) {
-    if (hasPendingRetakeRequest(test)) {
-      setRetakeSuccess("Yêu cầu thi lại của bài này đã được gửi và đang chờ duyệt.");
-      return;
-    }
-
-    setRetakeActionTestId(test.id);
-    setRetakeError("");
-    setRetakeSuccess("");
-
-    try {
-      const message = await onRequestRetake(test);
-      setRetakeSuccess(message);
-    } catch (error) {
-      setRetakeError(error instanceof Error ? error.message : "Không thể gửi yêu cầu thi lại.");
-    } finally {
-      setRetakeActionTestId(null);
-    }
-  }
 
   return (
     <>
@@ -138,8 +98,6 @@ export function HomeDashboard({
         <div className="section-title">
           <h3>Danh sách bài test được giao</h3>
         </div>
-        {retakeError && <p className="login-error">{retakeError}</p>}
-        {retakeSuccess && <p className="success-message">{retakeSuccess}</p>}
         <div className="test-list">
           {tests.map((test, index) => (
             <AssignedTestRow
@@ -149,8 +107,6 @@ export function HomeDashboard({
               onOpenTest={onOpenTest}
               onPractice={onPractice}
               onOfficial={onOfficial}
-              onRequestRetake={requestRetake}
-              isRequestingRetake={retakeActionTestId === test.id}
             />
           ))}
         </div>
@@ -168,25 +124,22 @@ function AssignedTestRow({
   test,
   onOpenTest,
   onPractice,
-  onOfficial,
-  onRequestRetake,
-  isRequestingRetake
+  onOfficial
 }: {
   index: number;
   test: AssignedTest;
   onOpenTest: (testId: number) => void;
   onPractice: (testId: number) => void;
   onOfficial: (testId: number) => void;
-  onRequestRetake: (test: AssignedTest) => void;
-  isRequestingRetake: boolean;
 }) {
   const Icon = test.icon;
   const officialDone = isOfficialLocked(test);
   const officialPassed = isOfficialPassed(test);
   const officialTone = officialResultTone(test);
-  const officialButtonClass = officialDone && officialPassed ? `official-result-button ${officialTone}` : "primary-button";
-  const pendingRetakeRequestExists = hasPendingRetakeRequest(test);
+  const officialButtonClass = officialDone ? `official-result-button ${officialTone}` : "primary-button";
+  const officialCooldown = hasOfficialCooldown(test);
   const canStartPractice = canStartPracticeAttempt(test);
+  const nextOfficialAt = getNextOfficialAvailableAt(test);
 
   return (
     <article className={`test-row ${officialDone ? `official-${officialTone}` : ""}`}>
@@ -221,23 +174,15 @@ function AssignedTestRow({
         </button>
         {!officialPassed && test.status !== "CHƯA ĐẠT" && (
           <button className="warm-button" onClick={() => onPractice(test.id)} disabled={!canStartPractice}>
-            <Pencil size={16} /> {canStartPractice ? "Làm thử" : "Hết lượt làm thử"}
+            <Pencil size={16} /> Làm thử
           </button>
         )}
         {test.status === "CHƯA ĐẠT" && (
           <button className="danger-outline-button" onClick={() => onPractice(test.id)} disabled={!canStartPractice}>
-            <RotateCcw size={16} /> {canStartPractice ? "Làm lại" : "Hết lượt làm thử"}
+            <RotateCcw size={16} /> Làm lại
           </button>
         )}
-        {officialDone && !officialPassed ? (
-          <button
-            className="danger-outline-button"
-            onClick={() => onRequestRetake(test)}
-            disabled={isRequestingRetake || pendingRetakeRequestExists}
-          >
-            <RefreshCw size={16} /> {retakeButtonLabel(test, isRequestingRetake)}
-          </button>
-        ) : (
+        <div className="official-action-stack">
           <button
             className={officialButtonClass}
             onClick={() => onOfficial(test.id)}
@@ -246,7 +191,13 @@ function AssignedTestRow({
             {officialDone ? <CheckCircle2 size={16} /> : <ShieldCheck size={16} />}
             {officialDone ? officialResultLabel(test) : "Làm chính thức"}
           </button>
-        )}
+          {officialCooldown && (
+            <span className="official-cooldown-note">
+              {OFFICIAL_RETAKE_COOLDOWN_MESSAGE}
+              {nextOfficialAt ? ` (${new Date(nextOfficialAt.replace(" ", "T")).toLocaleDateString("vi-VN")})` : ""}
+            </span>
+          )}
+        </div>
       </div>
     </article>
   );

@@ -44,19 +44,14 @@ function getIntegerField(value: unknown, fallback: number, min: number, max: num
   return Math.min(Math.max(numberValue, min), max);
 }
 
-function getDecimalField(value: unknown, fallback: number, min: number, max: number) {
-  const numberValue = Number(value);
-
-  if (!Number.isFinite(numberValue)) {
-    return fallback;
-  }
-
-  return Math.min(Math.max(numberValue, min), max);
-}
-
 function getStatus(value: unknown) {
   const status = String(value ?? "active").trim();
   return TEST_STATUSES.has(status) ? status : "active";
+}
+
+function getPassScoreForQuestionCount(questionCount: number) {
+  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
+  return Number(((requiredCorrectAnswers / questionCount) * 100).toFixed(2));
 }
 
 function parseMaterialIds(value: unknown) {
@@ -195,7 +190,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   const description = cleanText(body?.description);
   const questionCount = getIntegerField(body?.questionCount, 40, 1, 300);
   const durationMinutes = getIntegerField(body?.durationMinutes, 20, 1, 600);
-  const passScore = getDecimalField(body?.passScore, 80, 0, 100);
+  const passScore = getPassScoreForQuestionCount(questionCount);
   const maxOfficialAttempts = getIntegerField(body?.maxOfficialAttempts, 1, 1, 20);
   const status = getStatus(body?.status);
   const materialIds = parseMaterialIds(body?.materialIds);

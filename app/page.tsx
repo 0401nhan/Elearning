@@ -82,6 +82,9 @@ function mapAssignmentToTest(assignment: UserAssignment, index: number): Assigne
     officialAttemptsUsed: assignment.official_attempts_used,
     maxOfficialAttempts: assignment.max_official_attempts,
     officialScore: assignment.official_score ?? undefined,
+    lastOfficialSubmittedAt: assignment.last_official_submitted_at,
+    nextOfficialAvailableAt: assignment.next_official_available_at,
+    officialCooldownSeconds: assignment.official_cooldown_seconds,
     retakeRequestCount: assignment.retake_request_count,
     retakeRequestStatus: assignment.retake_request_status,
     status,
@@ -386,31 +389,6 @@ export default function Page() {
     navigateToScreen("official");
   }
 
-  async function requestRetake(test: AssignedTest) {
-    if (test.retakeRequestStatus === "pending") {
-      throw new Error("Yêu cầu thi lại của bài này đã được gửi và đang chờ duyệt.");
-    }
-
-    const response = await fetch("/api/retake-requests", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        testId: test.id,
-        reason: `Xin mở lại lượt thi chính thức cho bài ${test.title}.`
-      })
-    }).catch(() => null);
-    const responseData = await response?.json().catch(() => null);
-
-    if (!response?.ok) {
-      throw new Error(responseData?.error ?? "Không thể gửi yêu cầu thi lại.");
-    }
-
-    await reloadUserData();
-    return responseData?.message ?? "Yêu cầu thi lại đã được gửi và đang chờ duyệt.";
-  }
-
   if (isBooting) {
     return (
       <main className="login-page">
@@ -453,7 +431,6 @@ export default function Page() {
           onOpenTest={openTest}
           onPractice={openPractice}
           onOfficial={openOfficial}
-          onRequestRetake={requestRetake}
         />
       </AppShell>
     );
@@ -477,7 +454,6 @@ export default function Page() {
           onOpenTest={openTest}
           onPractice={openPractice}
           onOfficial={openOfficial}
-          onRequestRetake={requestRetake}
         />
       )}
       {screen === "documents" && (
@@ -493,7 +469,6 @@ export default function Page() {
           onOpenTest={openTest}
           onPractice={openPractice}
           onOfficial={openOfficial}
-          onRequestRetake={requestRetake}
         />
       )}
       {screen === "test" && selectedTest && (

@@ -115,6 +115,13 @@ type TestForm = {
   materialIds: number[];
 };
 
+function getPassScoreForQuestionCount(value: string) {
+  const questionCount = Math.max(1, Math.floor(Number(value) || 1));
+  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
+  const passScore = (requiredCorrectAnswers / questionCount) * 100;
+  return passScore.toFixed(2).replace(/\.?0+$/, "");
+}
+
 const emptyForm: TestForm = {
   code: "",
   title: "",
@@ -122,7 +129,7 @@ const emptyForm: TestForm = {
   description: "",
   questionCount: "40",
   durationMinutes: "20",
-  passScore: "80",
+  passScore: getPassScoreForQuestionCount("40"),
   maxOfficialAttempts: "1",
   allowUnlimitedPractice: true,
   randomizeQuestions: true,
@@ -164,7 +171,7 @@ function statusClass(status: ManagedTestStatus) {
 }
 
 function formatScore(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function formatDate(value: string | null) {
@@ -758,7 +765,13 @@ export function TestManagementPage() {
                     min={1}
                     max={300}
                     value={form.questionCount}
-                    onChange={(event) => setForm({ ...form, questionCount: event.target.value })}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        questionCount: event.target.value,
+                        passScore: getPassScoreForQuestionCount(event.target.value)
+                      })
+                    }
                   />
                 </div>
               </label>
@@ -784,7 +797,7 @@ export function TestManagementPage() {
                     max={100}
                     step="0.5"
                     value={form.passScore}
-                    onChange={(event) => setForm({ ...form, passScore: event.target.value })}
+                    readOnly
                   />
                   <small>điểm</small>
                 </div>
