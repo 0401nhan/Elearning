@@ -15,13 +15,13 @@ type AssignmentLockRow = RowDataPacket & {
   question_count: number;
   pass_score: string | number;
   allow_unlimited_practice: number;
-  max_official_attempts: number;
-  approved_retake_count: number;
   practice_attempt_count: number;
   official_attempts_used: number;
   official_score: string | number | null;
   status: string;
   test_status: string;
+  next_official_available_at: string | null;
+  official_cooldown_seconds: number | null;
 };
 
 type CountRow = RowDataPacket & {
@@ -48,8 +48,6 @@ type OfficialAttemptLockRow = RowDataPacket & {
   elapsed_seconds: number;
   duration_minutes: number;
   pass_score: string | number;
-  max_official_attempts: number;
-  approved_retake_count: number;
   official_attempts_used: number;
   official_score: string | number | null;
   status: string;
@@ -70,15 +68,48 @@ type AttemptError = {
   body: { error: string };
 };
 
-function getOfficialAttemptLimit(
-  assignment: Pick<AssignmentLockRow | OfficialAttemptLockRow, "max_official_attempts" | "approved_retake_count">
-) {
-  return Number(assignment.max_official_attempts) + Number(assignment.approved_retake_count ?? 0);
-}
-
 function getPassScore(value: string | number | null | undefined) {
   const passScore = Number(value ?? 80);
   return Number.isFinite(passScore) ? passScore : 80;
+}
+
+function getRequiredCorrectAnswers(totalQuestions: number) {
+  const questionCount = Math.max(0, Math.floor(Number(totalQuestions)));
+  if (questionCount <= 1) {
+    return questionCount;
+  }
+
+  return questionCount - 1;
+}
+
+function getPassScoreForQuestionCount(totalQuestions: number) {
+  const questionCount = Math.max(0, Math.floor(Number(totalQuestions)));
+  if (!questionCount) {
+    return getPassScore(null);
+  }
+
+  return Number(((getRequiredCorrectAnswers(questionCount) / questionCount) * 100).toFixed(2));
+}
+
+function isPassingCorrectCount(correctAnswers: number, totalQuestions: number) {
+  return correctAnswers >= getRequiredCorrectAnswers(totalQuestions);
+}
+
+function getNextOfficialWeekStart(now = new Date()) {
+  const nextMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const dayOfWeek = now.getDay();
+  const daysUntilNextMonday = dayOfWeek === 1 ? 7 : (8 - dayOfWeek) % 7;
+  nextMonday.setDate(nextMonday.getDate() + daysUntilNextMonday);
+
+  return nextMonday;
+}
+
+function getOfficialRetrySchedule(now = new Date()) {
+  const nextOfficialAvailableAt = getNextOfficialWeekStart(now);
+  return {
+    officialCooldownSeconds: Math.max(0, Math.ceil((nextOfficialAvailableAt.getTime() - now.getTime()) / 1000)),
+    nextOfficialAvailableAt: nextOfficialAvailableAt.toISOString()
+  };
 }
 
 function getQuestionLimit(value: string | number | null | undefined) {
@@ -188,8 +219,6 @@ async function submitOfficialAttempt(
         TIMESTAMPDIFF(SECOND, attempt.started_at, NOW()) AS elapsed_seconds,
         t.duration_minutes,
         t.pass_score,
-        t.max_official_attempts,
-        COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
         ta.official_attempts_used,
         ta.official_score,
         ta.status,
@@ -197,12 +226,6 @@ async function submitOfficialAttempt(
       FROM test_attempts attempt
       JOIN test_assignments ta ON ta.id = attempt.assignment_id
       JOIN tests t ON t.id = attempt.test_id
-      LEFT JOIN (
-        SELECT assignment_id, COUNT(*) AS approved_retake_count
-        FROM retake_requests
-        WHERE status = 'approved'
-        GROUP BY assignment_id
-      ) retake ON retake.assignment_id = ta.id
       WHERE attempt.id = ?
         AND attempt.employee_id = ?
         AND attempt.mode = 'official'
@@ -226,10 +249,6 @@ async function submitOfficialAttempt(
 
     if (attempt.status === "passed") {
       return { status: 409 as const, body: { error: "Bài chính thức đã được ghi nhận, không thể nộp lại." } };
-    }
-
-    if (Number(attempt.official_attempts_used) >= getOfficialAttemptLimit(attempt)) {
-      return { status: 409 as const, body: { error: "Bài chính thức đã hết lượt làm." } };
     }
 
     const [attemptQuestionRows] = await connection.query<AttemptQuestionRow[]>(
@@ -326,7 +345,8 @@ async function submitOfficialAttempt(
       return sum + (correctMap.get(`${answer.questionId}:${answer.selectedOptionId}`) ? 1 : 0);
     }, 0);
     const score = Number(((correctAnswers / totalQuestions) * 100).toFixed(2));
-    const passScoreSnapshot = getPassScore(attempt.pass_score);
+    const passScoreSnapshot = getPassScoreForQuestionCount(totalQuestions);
+    const isPassed = isPassingCorrectCount(correctAnswers, totalQuestions);
     const resultStatus = getResultStatus(score, passScoreSnapshot);
     const timeSpentSeconds = Math.min(
       maxDurationSeconds,
@@ -358,8 +378,10 @@ async function submitOfficialAttempt(
           completed_at = NOW()
       WHERE id = ?
       `,
-      [score, score >= passScoreSnapshot ? "passed" : "failed", attempt.assignment_id]
+      [score, isPassed ? "passed" : "failed", attempt.assignment_id]
     );
+
+    const retrySchedule = isPassed ? null : getOfficialRetrySchedule();
 
     return {
       status: 200 as const,
@@ -370,7 +392,9 @@ async function submitOfficialAttempt(
         correctAnswers,
         score,
         passScore: passScoreSnapshot,
-        resultStatus
+        resultStatus,
+        officialCooldownSeconds: retrySchedule?.officialCooldownSeconds ?? 0,
+        nextOfficialAvailableAt: retrySchedule?.nextOfficialAvailableAt ?? null
       }
     };
   });
@@ -417,21 +441,25 @@ export async function POST(request: Request) {
         t.question_count,
         t.pass_score,
         t.allow_unlimited_practice,
-        t.max_official_attempts,
-        COALESCE(retake.approved_retake_count, 0) AS approved_retake_count,
         ta.practice_attempt_count,
         ta.official_attempts_used,
         ta.official_score,
         ta.status,
-        t.status AS test_status
+        t.status AS test_status,
+        DATE_FORMAT(DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY), '%Y-%m-%d %H:%i:%s') AS next_official_available_at,
+        GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY))) AS official_cooldown_seconds
       FROM test_assignments ta
       JOIN tests t ON t.id = ta.test_id
       LEFT JOIN (
-        SELECT assignment_id, COUNT(*) AS approved_retake_count
-        FROM retake_requests
-        WHERE status = 'approved'
-        GROUP BY assignment_id
-      ) retake ON retake.assignment_id = ta.id
+        SELECT attempt.*
+        FROM test_attempts attempt
+        JOIN (
+          SELECT assignment_id, MAX(id) AS latest_attempt_id
+          FROM test_attempts
+          WHERE mode = 'official' AND submitted_at IS NOT NULL
+          GROUP BY assignment_id
+        ) latest ON latest.latest_attempt_id = attempt.id
+      ) latest_official ON latest_official.assignment_id = ta.id
       WHERE ta.employee_id = ? AND ta.test_id = ?
       FOR UPDATE
       `,
@@ -447,20 +475,20 @@ export async function POST(request: Request) {
       return { status: 409 as const, body: { error: "Bài test đã được lưu trữ, không thể nộp bài." } };
     }
 
-    if (
-      mode === "practice" &&
-      !Boolean(assignment.allow_unlimited_practice) &&
-      Number(assignment.practice_attempt_count ?? 0) > 0
-    ) {
-      return { status: 409 as const, body: { error: "Bài test này chỉ cho phép làm thử 1 lần." } };
-    }
-
     if (mode === "official" && assignment.status === "passed") {
       return { status: 409 as const, body: { error: "Bài chính thức đã được ghi nhận, không thể làm lại." } };
     }
 
-    if (mode === "official" && assignment.official_attempts_used >= getOfficialAttemptLimit(assignment)) {
-      return { status: 409 as const, body: { error: "Bài chính thức đã hết lượt làm." } };
+    const officialCooldownSeconds = Number(assignment.official_cooldown_seconds ?? 0);
+    if (mode === "official" && assignment.status === "failed" && officialCooldownSeconds > 0) {
+      return {
+        status: 409 as const,
+        body: {
+          error: "Làm lại bài kiểm tra vào tuần sau.",
+          officialCooldownSeconds,
+          nextOfficialAvailableAt: assignment.next_official_available_at
+        }
+      };
     }
 
     const submittedQuestionIds = submittedAnswers.map((answer) => answer.questionId);
@@ -539,7 +567,8 @@ export async function POST(request: Request) {
       return sum + (correctMap.get(`${answer.questionId}:${answer.selectedOptionId}`) ? 1 : 0);
     }, 0);
     const score = Number(((correctAnswers / totalQuestions) * 100).toFixed(2));
-    const passScoreSnapshot = getPassScore(assignment.pass_score);
+    const passScoreSnapshot = getPassScoreForQuestionCount(totalQuestions);
+    const isPassed = isPassingCorrectCount(correctAnswers, totalQuestions);
     const resultStatus = getResultStatus(score, passScoreSnapshot);
 
     const [attemptCountRows] = await connection.query<CountRow[]>(
@@ -608,7 +637,7 @@ export async function POST(request: Request) {
             completed_at = NOW()
         WHERE id = ?
         `,
-        [score, score >= passScoreSnapshot ? "passed" : "failed", assignment.assignment_id]
+        [score, isPassed ? "passed" : "failed", assignment.assignment_id]
       );
     }
 

@@ -195,12 +195,16 @@ export function DocumentsPage({
                   <Eye size={16} /> Xem tài liệu
                 </button>
                 {material.contentUrl && (
-                  <button
+                  <a
                     className="outline-button"
-                    onClick={() => viewMaterial(material)}
+                    href={material.contentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    download
+                    onClick={() => openMaterialFile(material)}
                   >
-                    <Download size={16} /> Mở file
-                  </button>
+                    <Download size={16} /> Tải file
+                  </a>
                 )}
                 <button className="primary-button" onClick={() => markAsRead(material)} disabled={isSaving || progress === 100}>
                   <BookOpen size={16} /> Đã đọc

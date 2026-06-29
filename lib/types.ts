@@ -43,6 +43,9 @@ export type UserAssignment = {
   official_attempts_used: number;
   max_official_attempts: number;
   official_score: number | null;
+  last_official_submitted_at: string | null;
+  next_official_available_at: string | null;
+  official_cooldown_seconds: number;
   retake_request_count: number;
   retake_request_status: RetakeRequestStatus | null;
 };
@@ -85,6 +88,9 @@ export type AssignedTest = {
   officialAttemptsUsed?: number;
   maxOfficialAttempts?: number;
   officialScore?: number;
+  lastOfficialSubmittedAt?: string | null;
+  nextOfficialAvailableAt?: string | null;
+  officialCooldownSeconds?: number;
   retakeRequestCount?: number;
   retakeRequestStatus?: RetakeRequestStatus | null;
   status: TestStatus;

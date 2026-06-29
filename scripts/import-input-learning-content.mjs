@@ -15,6 +15,9 @@ const publicUploadPath = "/uploads/training-materials";
 const questionImageUploadDir = path.join(root, "public", "uploads", "question-images", "qhse");
 const publicQuestionImagePath = "/uploads/question-images/qhse";
 const optionLabels = ["A", "B", "C", "D"];
+const officeMaterialExtensions = new Set([".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"]);
+const imageMaterialExtensions = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
+const videoMaterialExtensions = new Set([".mov", ".mp4", ".webm"]);
 
 function walkFiles(dir) {
   if (!existsSync(dir)) {
@@ -182,6 +185,135 @@ function readDocxParagraphObjects(inputPath) {
       return {
         text: cleanText(parts.join("")),
         images
+      };
+    });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function xmlAttribute(xml, name) {
+  return new RegExp(`(?:^|\\s)${name}="([^"]*)"`).exec(xml)?.[1] ?? null;
+}
+
+function xlsxColumnIndex(cellReference) {
+  const letters = /^[A-Z]+/i.exec(String(cellReference ?? ""))?.[0]?.toUpperCase() ?? "";
+  let index = 0;
+  for (const letter of letters) {
+    index = index * 26 + letter.charCodeAt(0) - 64;
+  }
+
+  return index;
+}
+
+function readXlsxSharedStrings(extractDir) {
+  const sharedStringsPath = path.join(extractDir, "xl", "sharedStrings.xml");
+  if (!existsSync(sharedStringsPath)) {
+    return [];
+  }
+
+  const sharedStringsXml = readFileSync(sharedStringsPath, "utf8");
+  return Array.from(sharedStringsXml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g), (match) =>
+    Array.from(match[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g), (textMatch) => decodeXml(textMatch[1])).join("")
+  );
+}
+
+function xlsxRelationshipTargets(extractDir) {
+  const relationshipPath = path.join(extractDir, "xl", "_rels", "workbook.xml.rels");
+  const targets = new Map();
+  if (!existsSync(relationshipPath)) {
+    return targets;
+  }
+
+  const relationshipXml = readFileSync(relationshipPath, "utf8");
+  for (const relationship of relationshipXml.matchAll(/<Relationship\b([^>]*)\/?>/g)) {
+    const attributes = relationship[1];
+    const id = xmlAttribute(attributes, "Id");
+    const target = xmlAttribute(attributes, "Target");
+    if (id && target) {
+      targets.set(id, decodeXml(target));
+    }
+  }
+
+  return targets;
+}
+
+function xlsxSheetPath(extractDir, relationshipTarget, fallbackSheetId) {
+  if (relationshipTarget) {
+    return relationshipTarget.startsWith("/")
+      ? path.join(extractDir, relationshipTarget.replace(/^\/+/, ""))
+      : path.join(extractDir, "xl", relationshipTarget);
+  }
+
+  return path.join(extractDir, "xl", "worksheets", `sheet${fallbackSheetId}.xml`);
+}
+
+function xlsxCellValue(attributes, innerXml, sharedStrings) {
+  const type = xmlAttribute(attributes, "t");
+  if (type === "s") {
+    const sharedStringIndex = /<v>([\s\S]*?)<\/v>/.exec(innerXml)?.[1];
+    return sharedStringIndex === undefined ? "" : sharedStrings[Number(sharedStringIndex)] ?? "";
+  }
+
+  if (type === "inlineStr") {
+    return Array.from(innerXml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g), (match) => decodeXml(match[1])).join("");
+  }
+
+  return decodeXml(/<v>([\s\S]*?)<\/v>/.exec(innerXml)?.[1] ?? "");
+}
+
+function parseXlsxRows(sheetXml, sharedStrings) {
+  const rows = [];
+  for (const rowMatch of sheetXml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+    const values = [];
+    const cellXml = rowMatch[1];
+    const cellPattern = /<c\b([^/>]*?)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+
+    for (const cellMatch of cellXml.matchAll(cellPattern)) {
+      const attributes = cellMatch[1] ?? cellMatch[2] ?? "";
+      const innerXml = cellMatch[3] ?? "";
+      const cellReference = xmlAttribute(attributes, "r");
+      const columnIndex = xlsxColumnIndex(cellReference) || values.length + 1;
+      values[columnIndex - 1] = cleanText(xlsxCellValue(attributes, innerXml, sharedStrings));
+    }
+
+    rows.push(values.map((value) => value ?? ""));
+  }
+
+  return rows;
+}
+
+function readXlsxSheets(inputPath) {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "eb-input-xlsx-"));
+  const zipPath = path.join(tempDir, "workbook.zip");
+  try {
+    copyFileSync(inputPath, zipPath);
+    execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        `Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(tempDir)} -Force`
+      ],
+      { stdio: "pipe" }
+    );
+
+    const workbookXml = readFileSync(path.join(tempDir, "xl", "workbook.xml"), "utf8");
+    const relationships = xlsxRelationshipTargets(tempDir);
+    const sharedStrings = readXlsxSharedStrings(tempDir);
+
+    return Array.from(workbookXml.matchAll(/<sheet\b([^>]*)\/?>/g), (sheetMatch) => {
+      const attributes = sheetMatch[1];
+      const name = decodeXml(xmlAttribute(attributes, "name") ?? "Sheet");
+      const sheetId = Number(xmlAttribute(attributes, "sheetId") ?? 0);
+      const relationshipId = xmlAttribute(attributes, "r:id");
+      const sheetPath = xlsxSheetPath(tempDir, relationshipId ? relationships.get(relationshipId) : null, sheetId);
+      const sheetXml = readFileSync(sheetPath, "utf8");
+      return {
+        name,
+        rows: parseXlsxRows(sheetXml, sharedStrings)
       };
     });
   } finally {
@@ -705,6 +837,85 @@ function parseGenericQuestions(filePath, defaultGroupName) {
   return questions;
 }
 
+function normalizedHeader(value) {
+  return ascii(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function headerIndex(headers, aliases) {
+  const normalizedAliases = aliases.map(normalizedHeader);
+  return headers.findIndex((header) => normalizedAliases.includes(normalizedHeader(header)));
+}
+
+function parseCorrectOptionLabel(value, sourceLabel) {
+  const match = /^[A-D]/i.exec(cleanText(value));
+  if (!match) {
+    throw new Error(`${sourceLabel}: invalid correct option "${value}".`);
+  }
+
+  return match[0].toUpperCase();
+}
+
+function parseKtvpLevel1Questions(filePath) {
+  const sheets = readXlsxSheets(filePath);
+  const questions = [];
+  let sequenceNumber = 1;
+
+  for (const sheet of sheets) {
+    const rows = sheet.rows.filter((row) => row.some((cell) => cleanText(cell)));
+    if (!rows.length) {
+      continue;
+    }
+
+    const headers = rows[0];
+    const questionIndex = headerIndex(headers, ["cau hoi"]);
+    const answerIndex = headerIndex(headers, ["dap an"]);
+    const explanationIndex = headerIndex(headers, ["giai thich"]);
+    const optionIndexes = optionLabels.map((label) => headerIndex(headers, [label]));
+
+    if (
+      questionIndex < 0 ||
+      answerIndex < 0 ||
+      explanationIndex < 0 ||
+      optionIndexes.some((optionIndex) => optionIndex < 0)
+    ) {
+      throw new Error(`${path.basename(filePath)} sheet ${sheet.name}: missing required columns.`);
+    }
+
+    for (const row of rows.slice(1)) {
+      const questionText = cleanText(row[questionIndex]);
+      if (!questionText) {
+        continue;
+      }
+
+      const sourceLabel = `${path.basename(filePath)} sheet ${sheet.name} question ${sequenceNumber}`;
+      const correctLabel = parseCorrectOptionLabel(row[answerIndex], sourceLabel);
+      const options = optionLabels.map((label, index) => ({
+        label,
+        text: cleanText(row[optionIndexes[index]]),
+        isCorrect: label === correctLabel
+      }));
+
+      questions.push({
+        number: sequenceNumber,
+        groupName: sheet.name,
+        questionText,
+        imageRefs: [],
+        explanation: cleanText(row[explanationIndex]) || null,
+        difficulty: "medium",
+        options
+      });
+
+      sequenceNumber += 1;
+    }
+  }
+
+  validateQuestions(filePath, questions);
+  return questions;
+}
+
 function validateQuestions(source, questions) {
   if (!questions.length) {
     throw new Error(`No questions parsed from ${source}.`);
@@ -941,6 +1152,62 @@ function buildGenericProcedureBundle(config) {
   };
 }
 
+function buildCombinedKtvpBundle() {
+  const level1Root = inputDirectoryByCanonicalTitle("ktvp level 1");
+  if (!level1Root) {
+    throw new Error("Missing input folder for KTVP Level 1.");
+  }
+
+  const level1QuestionFile = walkFiles(level1Root).find((filePath) => path.extname(filePath).toLowerCase() === ".xlsx");
+  if (!level1QuestionFile) {
+    throw new Error(`Missing question XLSX in ${path.relative(root, level1Root)}.`);
+  }
+
+  const procedureBundle = buildGenericProcedureBundle({
+    family: "KTVP",
+    code: "KTVP_QUY_TRINH_QUY_DINH",
+    folderTitle: "quy trinh quy dinh ktvp",
+    departmentKey: "KTVP",
+    materialTitlePrefix: "KTVP"
+  });
+  const level1Questions = parseKtvpLevel1Questions(level1QuestionFile);
+  const procedureQuestions = procedureBundle.questions.map((question) => ({
+    ...question,
+    number: question.number + level1Questions.length
+  }));
+
+  return {
+    family: "KTVP",
+    code: "KTVP_VAN_PHONG",
+    title: "B\u00c0I KI\u1ec2M TRA K\u1ef8 THU\u1eacT V\u0102N PH\u00d2NG",
+    description: `Imported from ${path.relative(root, level1Root)} and ${path.relative(
+      root,
+      inputDirectoryByCanonicalTitle("quy trinh quy dinh ktvp")
+    )}.`,
+    departmentKey: "KTVP",
+    allowMissingDepartment: true,
+    configuredQuestionCount: 30,
+    durationMinutes: 30,
+    materialItems: [
+      {
+        filePath: level1QuestionFile,
+        title: "KTVP Level 1 - Cau hoi trac nghiem",
+        uploadCode: "KTVP_VAN_PHONG-LEVEL-1",
+        materialType: "slide"
+      },
+      ...procedureBundle.materialFiles.map((filePath, index) => ({
+        filePath,
+        title: materialTitleForBundle(procedureBundle, filePath),
+        uploadCode: `KTVP_VAN_PHONG-QUY-TRINH-${index + 1}`,
+        materialType: materialTypeForFile(filePath)
+      }))
+    ],
+    questionFiles: [level1QuestionFile, ...questionFilesForBundle(procedureBundle)],
+    questions: [...level1Questions, ...procedureQuestions],
+    supersedesCodes: ["KTVP_OM", "KTVP_QUY_TRINH_QUY_DINH"]
+  };
+}
+
 function buildGenericProcedureBundles(only = "procedures") {
   const configs = [
     {
@@ -955,7 +1222,7 @@ function buildGenericProcedureBundles(only = "procedures") {
       key: "ktvp",
       family: "KTVP",
       code: "KTVP_QUY_TRINH_QUY_DINH",
-      folderTitle: "ktvp",
+      folderTitle: "quy trinh quy dinh ktvp",
       departmentKey: "KTVP",
       materialTitlePrefix: "KTVP"
     }
@@ -1051,9 +1318,9 @@ async function getCreatorId(connection) {
   return employeeRows[0]?.id ? Number(employeeRows[0].id) : null;
 }
 
-async function ensureMaterial(connection, bundle, departmentId, creatorId, contentUrl) {
+async function ensureMaterial(connection, material, departmentId, creatorId) {
   const [existingRows] = await connection.query("SELECT id FROM training_materials WHERE content_url = ? LIMIT 1", [
-    contentUrl
+    material.contentUrl
   ]);
 
   if (existingRows[0]?.id) {
@@ -1061,11 +1328,11 @@ async function ensureMaterial(connection, bundle, departmentId, creatorId, conte
     await connection.execute(
       `
       UPDATE training_materials
-      SET title = ?, material_type = 'pdf', content_text = NULL, department_id = ?,
+      SET title = ?, material_type = ?, content_text = NULL, department_id = ?,
           version_label = '1.0', is_active = 1, uploaded_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
       `,
-      [bundle.materialTitle, departmentId, creatorId, materialId]
+      [material.title, material.materialType, departmentId, creatorId, materialId]
     );
     return materialId;
   }
@@ -1074,9 +1341,9 @@ async function ensureMaterial(connection, bundle, departmentId, creatorId, conte
     `
     INSERT INTO training_materials
       (title, material_type, content_url, content_text, department_id, version_label, is_active, uploaded_by)
-    VALUES (?, 'pdf', ?, NULL, ?, '1.0', 1, ?)
+    VALUES (?, ?, ?, NULL, ?, '1.0', 1, ?)
     `,
-    [bundle.materialTitle, contentUrl, departmentId, creatorId]
+    [material.title, material.materialType, material.contentUrl, departmentId, creatorId]
   );
   return result.insertId;
 }
@@ -1084,6 +1351,8 @@ async function ensureMaterial(connection, bundle, departmentId, creatorId, conte
 async function ensureTest(connection, bundle, departmentId, creatorId) {
   const questionCount = bundle.configuredQuestionCount ?? bundle.questions.length;
   const durationMinutes = bundle.durationMinutes ?? Math.max(20, Math.ceil(questionCount * 0.6));
+  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
+  const passScore = questionCount > 0 ? Number(((requiredCorrectAnswers / questionCount) * 100).toFixed(2)) : 80;
 
   await connection.execute(
     `
@@ -1091,7 +1360,7 @@ async function ensureTest(connection, bundle, departmentId, creatorId) {
       (code, title, department_id, description, question_count, duration_minutes, pass_score,
        max_official_attempts, allow_unlimited_practice, randomize_questions, randomize_answers,
        show_practice_answers, show_official_answers, status, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, 80.00, 1, 1, 1, 1, 1, 0, 'active', ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1, 1, 1, 0, 'active', ?)
     ON DUPLICATE KEY UPDATE
       title = VALUES(title),
       department_id = VALUES(department_id),
@@ -1108,7 +1377,7 @@ async function ensureTest(connection, bundle, departmentId, creatorId) {
       status = VALUES(status),
       created_by = COALESCE(created_by, VALUES(created_by))
     `,
-    [bundle.code, bundle.title, departmentId, bundle.description, questionCount, durationMinutes, creatorId]
+    [bundle.code, bundle.title, departmentId, bundle.description, questionCount, durationMinutes, passScore, creatorId]
   );
 
   const [rows] = await connection.query("SELECT id FROM tests WHERE code = ? LIMIT 1", [bundle.code]);
@@ -1196,6 +1465,31 @@ async function linkMaterials(connection, testId, materialIds) {
   ]);
 }
 
+function materialTypeForFile(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".pdf") {
+    return "pdf";
+  }
+
+  if (imageMaterialExtensions.has(extension)) {
+    return "image";
+  }
+
+  if (videoMaterialExtensions.has(extension)) {
+    return "video";
+  }
+
+  if (officeMaterialExtensions.has(extension)) {
+    return "slide";
+  }
+
+  if (extension === ".txt" || extension === ".csv") {
+    return "text";
+  }
+
+  return "link";
+}
+
 function materialTitleForBundle(bundle, filePath) {
   if (bundle.materialTitle) {
     return bundle.materialTitle;
@@ -1214,11 +1508,21 @@ function materialTitleForBundle(bundle, filePath) {
 }
 
 function materialItemsForBundle(bundle) {
+  if (bundle.materialItems) {
+    return bundle.materialItems.map((item, index) => ({
+      filePath: item.filePath,
+      title: item.title ?? materialTitleForBundle(bundle, item.filePath),
+      uploadCode: item.uploadCode ?? `${bundle.code}-${index + 1}`,
+      materialType: item.materialType ?? materialTypeForFile(item.filePath)
+    }));
+  }
+
   const materialFiles = bundle.materialFiles ?? (bundle.materialFile ? [bundle.materialFile] : []);
   return materialFiles.map((filePath, index) => ({
     filePath,
     title: materialTitleForBundle(bundle, filePath),
-    uploadCode: `${bundle.code}-${index + 1}`
+    uploadCode: `${bundle.code}-${index + 1}`,
+    materialType: materialTypeForFile(filePath)
   }));
 }
 
@@ -1240,6 +1544,25 @@ async function archiveOldInputTests(connection, keepCodes) {
       AND (code LIKE 'HCNS_%' OR code LIKE 'QHSE_PART_%')
     `,
     [keepCodes]
+  );
+
+  return result.affectedRows ?? 0;
+}
+
+async function archiveTestsByCodes(connection, codes) {
+  const uniqueCodes = [...new Set(codes)].filter(Boolean);
+  if (!uniqueCodes.length) {
+    return 0;
+  }
+
+  const [result] = await connection.query(
+    `
+    UPDATE tests
+    SET status = 'archived'
+    WHERE status = 'active'
+      AND code IN (?)
+    `,
+    [uniqueCodes]
   );
 
   return result.affectedRows ?? 0;
@@ -1291,6 +1614,7 @@ async function importBundles(bundles, dryRun, options = {}) {
             code: bundle.code,
             title: bundle.title,
             materialFiles: materialItems.map((item) => path.relative(root, item.filePath)),
+            materialTypes: materialItems.map((item) => item.materialType),
             questionFiles: questionFilesForBundle(bundle).map((filePath) => path.relative(root, filePath)),
             questions: bundle.questions.length,
             questionImages: bundle.questions.filter((question) => question.imageUrl).length,
@@ -1329,15 +1653,7 @@ async function importBundles(bundles, dryRun, options = {}) {
       try {
         const materialIds = [];
         for (const item of materialInputs) {
-          materialIds.push(
-            await ensureMaterial(
-              connection,
-              { ...bundle, materialTitle: item.title },
-              departmentId,
-              creatorId,
-              item.contentUrl
-            )
-          );
+          materialIds.push(await ensureMaterial(connection, item, departmentId, creatorId));
         }
 
         const testId = await ensureTest(connection, bundle, departmentId, creatorId);
@@ -1364,8 +1680,14 @@ async function importBundles(bundles, dryRun, options = {}) {
     const archivedTests = options.archiveOldInputTests
       ? await archiveOldInputTests(connection, summaries.map((summary) => summary.code))
       : 0;
+    const archivedSupersededTests = options.archiveSupersededTests
+      ? await archiveTestsByCodes(
+          connection,
+          bundles.flatMap((bundle) => bundle.supersedesCodes ?? []).filter((code) => !summaries.some((summary) => summary.code === code))
+        )
+      : 0;
 
-    return { dryRun, archivedTests, items: summaries };
+    return { dryRun, archivedTests, archivedSupersededTests, items: summaries };
   } finally {
     await connection.end();
   }
@@ -1378,12 +1700,19 @@ function parseArgs(argv) {
     dryRun: args.has("--dry-run"),
     only: onlyArg ? onlyArg.slice("--only=".length).toLowerCase() : "all",
     combined: args.has("--combined"),
-    archiveOldInputTests: args.has("--archive-old-input-tests")
+    archiveOldInputTests: args.has("--archive-old-input-tests"),
+    archiveSupersededTests: args.has("--archive-superseded")
   };
 }
 
 async function main() {
-  const { dryRun, only, combined, archiveOldInputTests: shouldArchiveOldInputTests } = parseArgs(process.argv.slice(2));
+  const {
+    dryRun,
+    only,
+    combined,
+    archiveOldInputTests: shouldArchiveOldInputTests,
+    archiveSupersededTests: shouldArchiveSupersededTests
+  } = parseArgs(process.argv.slice(2));
   const bundles = [
     ...(combined
       ? [
@@ -1396,11 +1725,12 @@ async function main() {
         ]),
     ...(only === "all" || only === "procedures" || only === "dieuphoi" || only === "ktvp"
       ? buildGenericProcedureBundles(only === "all" ? "procedures" : only)
-      : [])
+      : []),
+    ...(only === "ktvp-combined" ? [buildCombinedKtvpBundle()] : [])
   ];
 
-  if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp"].includes(only)) {
-    throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, or ktvp.");
+  if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp", "ktvp-combined"].includes(only)) {
+    throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, ktvp, or ktvp-combined.");
   }
 
   if (!bundles.length) {
@@ -1408,7 +1738,8 @@ async function main() {
   }
 
   const result = await importBundles(bundles, dryRun, {
-    archiveOldInputTests: shouldArchiveOldInputTests
+    archiveOldInputTests: shouldArchiveOldInputTests,
+    archiveSupersededTests: shouldArchiveSupersededTests
   });
   console.log(JSON.stringify({ only, combined, ...result }, null, 2));
 }

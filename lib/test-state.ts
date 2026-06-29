@@ -8,17 +8,32 @@ type OfficialResultInput = {
   maxOfficialAttempts?: number | null;
   official_attempts_used?: number | null;
   max_official_attempts?: number | null;
+  officialCooldownSeconds?: number | null;
+  official_cooldown_seconds?: number | null;
+  nextOfficialAvailableAt?: string | null;
+  next_official_available_at?: string | null;
 };
 
-function getAttemptNumber(value: number | null | undefined) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
+export const OFFICIAL_RETAKE_COOLDOWN_MESSAGE = "Làm lại bài kiểm tra vào tuần sau";
 
 export function hasOfficialResult(test: OfficialResultInput) {
   return (
     test.officialScore !== null &&
     test.officialScore !== undefined
   ) || test.status === "ĐÃ ĐẠT" || test.status === "CHƯA ĐẠT" || test.status === "passed" || test.status === "failed";
+}
+
+export function getOfficialCooldownSeconds(test: OfficialResultInput) {
+  const value = Number(test.officialCooldownSeconds ?? test.official_cooldown_seconds ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.ceil(value)) : 0;
+}
+
+export function hasOfficialCooldown(test: OfficialResultInput) {
+  return getOfficialCooldownSeconds(test) > 0;
+}
+
+export function getNextOfficialAvailableAt(test: OfficialResultInput) {
+  return test.nextOfficialAvailableAt ?? test.next_official_available_at ?? null;
 }
 
 export function isOfficialPassed(test: OfficialResultInput) {
@@ -42,19 +57,16 @@ export function canStartOfficialAttempt(test: OfficialResultInput) {
     return false;
   }
 
-  const used = getAttemptNumber(test.officialAttemptsUsed ?? test.official_attempts_used);
-  const limit = getAttemptNumber(test.maxOfficialAttempts ?? test.max_official_attempts);
-
-  if (used !== null && limit !== null) {
-    return used < limit;
+  if (hasOfficialCooldown(test)) {
+    return false;
   }
 
-  return !hasOfficialResult(test);
+  return true;
 }
 
-export function canStartPracticeAttempt(test: OfficialResultInput) {
-  const attempts = getAttemptNumber(test.attempts);
-  return test.allowUnlimitedPractice !== false || attempts === null || attempts === 0;
+export function canStartPracticeAttempt(_test?: OfficialResultInput) {
+  void _test;
+  return true;
 }
 
 export function isOfficialLocked(test: OfficialResultInput) {

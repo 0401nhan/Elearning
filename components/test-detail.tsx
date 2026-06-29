@@ -14,7 +14,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  OFFICIAL_RETAKE_COOLDOWN_MESSAGE,
   canStartPracticeAttempt,
+  getNextOfficialAvailableAt,
+  hasOfficialCooldown,
   isOfficialLocked,
   isOfficialPassed,
   officialResultLabel,
@@ -43,6 +46,9 @@ type DetailTest = {
   practice_attempt_count: number;
   official_attempts_used: number;
   official_score: number | null;
+  last_official_submitted_at: string | null;
+  next_official_available_at: string | null;
+  official_cooldown_seconds: number;
   due_at: string | null;
 };
 
@@ -110,11 +116,15 @@ export function TestDetail({
     officialScore: activeTest?.official_score ?? test.officialScore ?? null,
     passScore: activeTest?.pass_score ?? test.passScore,
     officialAttemptsUsed: activeTest?.official_attempts_used ?? test.officialAttemptsUsed ?? null,
-    maxOfficialAttempts: activeTest?.max_official_attempts ?? test.maxOfficialAttempts ?? null
+    maxOfficialAttempts: activeTest?.max_official_attempts ?? test.maxOfficialAttempts ?? null,
+    officialCooldownSeconds: activeTest?.official_cooldown_seconds ?? test.officialCooldownSeconds ?? 0,
+    nextOfficialAvailableAt: activeTest?.next_official_available_at ?? test.nextOfficialAvailableAt ?? null
   };
   const officialDone = isOfficialLocked(officialState);
   const officialPassed = isOfficialPassed(officialState);
   const officialTone = officialResultTone(officialState);
+  const officialCooldown = hasOfficialCooldown(officialState);
+  const nextOfficialAt = getNextOfficialAvailableAt(officialState);
   const passScore = activeTest?.pass_score ?? test.passScore;
   const canStartPractice = canStartPracticeAttempt({
     attempts: activeTest?.practice_attempt_count ?? test.attempts,
@@ -224,7 +234,9 @@ export function TestDetail({
               {officialState.officialScore !== null && officialState.officialScore !== undefined
                 ? ` với ${Math.round(officialState.officialScore)}/100 điểm`
                 : ""}
-              . Bạn không thể làm chính thức lại.
+              {officialPassed
+                ? ". Bạn không thể làm chính thức lại."
+                : `. ${OFFICIAL_RETAKE_COOLDOWN_MESSAGE}${nextOfficialAt ? ` (${new Date(nextOfficialAt.replace(" ", "T")).toLocaleDateString("vi-VN")})` : ""}.`}
             </span>
           </div>
         </section>
@@ -275,12 +287,16 @@ export function TestDetail({
                   <BookOpen size={16} /> Xem
                 </button>
                 {material.content_url && (
-                  <button
+                  <a
                     className="outline-button"
-                    onClick={() => viewMaterial(material)}
+                    href={material.content_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    download
+                    onClick={() => openMaterialFile(material)}
                   >
-                    <Download size={16} /> Mở file
-                  </button>
+                    <Download size={16} /> Tải file
+                  </a>
                 )}
                 <button className="primary-button" onClick={() => markMaterialRead(material)} disabled={isSaving || material.read_progress_percent >= 100}>
                   <CheckCircle2 size={16} /> Đã đọc
@@ -301,7 +317,7 @@ export function TestDetail({
         <div>
           <CheckCircle2 size={20} />
           <strong>Bài chính thức</strong>
-          <span>Chỉ được ghi nhận 1 lần duy nhất, cần đạt từ {passScore} điểm trở lên.</span>
+          <span>Mỗi tuần được làm chính thức 1 lần, cần đạt từ {passScore} điểm trở lên.</span>
         </div>
       </section>
 
@@ -310,16 +326,24 @@ export function TestDetail({
           <BookOpen size={18} /> Xem tài liệu
         </button>
         <button className="warm-button" onClick={onPractice} disabled={!canStartPractice}>
-          <Pencil size={18} /> {canStartPractice ? "Làm thử" : "Hết lượt làm thử"}
+          <Pencil size={18} /> Làm thử
         </button>
-        <button
-          className={officialDone ? `official-result-button ${officialTone}` : "primary-button"}
-          onClick={onOfficial}
-          disabled={officialDone}
-        >
-          {officialDone ? officialPassed ? <CheckCircle2 size={18} /> : <X size={18} /> : <ShieldCheck size={18} />}
-          {officialDone ? officialResultLabel(officialState) : "Làm chính thức"}
-        </button>
+        <div className="official-action-stack">
+          <button
+            className={officialDone ? `official-result-button ${officialTone}` : "primary-button"}
+            onClick={onOfficial}
+            disabled={officialDone}
+          >
+            {officialDone ? officialPassed ? <CheckCircle2 size={18} /> : <X size={18} /> : <ShieldCheck size={18} />}
+            {officialDone ? officialResultLabel(officialState) : "Làm chính thức"}
+          </button>
+          {officialCooldown && (
+            <span className="official-cooldown-note">
+              {OFFICIAL_RETAKE_COOLDOWN_MESSAGE}
+              {nextOfficialAt ? ` (${new Date(nextOfficialAt.replace(" ", "T")).toLocaleDateString("vi-VN")})` : ""}
+            </span>
+          )}
+        </div>
       </div>
 
       {selectedMaterial && (
@@ -368,7 +392,7 @@ function RuleList({ test }: { test: DetailTest | undefined }) {
       test ? (test.allow_unlimited_practice ? "Không giới hạn" : "1 lần") : "--",
       test?.allow_unlimited_practice ? "ok" : "info"
     ],
-    ["Làm chính thức", `${test?.max_official_attempts ?? 1} lần`, "info"],
+    ["Làm chính thức", "1 lần/tuần", "info"],
     ["Random câu hỏi", test?.randomize_questions ? "Có" : "Không", test?.randomize_questions ? "ok" : "info"],
     ["Random đáp án", test?.randomize_answers ? "Có" : "Không", test?.randomize_answers ? "ok" : "info"],
     ["Hiển thị đáp án khi làm thử", test?.show_practice_answers ? "Có" : "Không", test?.show_practice_answers ? "ok" : "warn"],

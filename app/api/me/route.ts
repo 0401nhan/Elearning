@@ -20,6 +20,9 @@ type AssignmentRow = RowDataPacket & {
   official_attempts_used: number;
   max_official_attempts: number;
   official_score: string | number | null;
+  last_official_submitted_at: string | null;
+  next_official_available_at: string | null;
+  official_cooldown_seconds: number | null;
   retake_request_count: number;
   retake_request_status: "pending" | "approved" | "rejected" | null;
 };
@@ -142,19 +145,16 @@ export async function GET(request: Request) {
       ta.read_progress_percent,
       ta.practice_attempt_count,
       ta.official_attempts_used,
-      (t.max_official_attempts + COALESCE(retake.approved_retake_count, 0)) AS max_official_attempts,
+      t.max_official_attempts,
       ta.official_score,
+      DATE_FORMAT(latest_official.submitted_at, '%Y-%m-%d %H:%i:%s') AS last_official_submitted_at,
+      DATE_FORMAT(DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY), '%Y-%m-%d %H:%i:%s') AS next_official_available_at,
+      GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY))) AS official_cooldown_seconds,
       COALESCE(retake_requests.retake_request_count, 0) AS retake_request_count,
       retake_requests.retake_request_status
     FROM test_assignments ta
     JOIN tests t ON t.id = ta.test_id
     LEFT JOIN departments d ON d.id = t.department_id
-    LEFT JOIN (
-      SELECT assignment_id, COUNT(*) AS approved_retake_count
-      FROM retake_requests
-      WHERE status = 'approved'
-      GROUP BY assignment_id
-    ) retake ON retake.assignment_id = ta.id
     LEFT JOIN (
       SELECT
         assignment_id,
@@ -163,6 +163,16 @@ export async function GET(request: Request) {
       FROM retake_requests
       GROUP BY assignment_id
     ) retake_requests ON retake_requests.assignment_id = ta.id
+    LEFT JOIN (
+      SELECT attempt.*
+      FROM test_attempts attempt
+      JOIN (
+        SELECT assignment_id, MAX(id) AS latest_attempt_id
+        FROM test_attempts
+        WHERE mode = 'official' AND submitted_at IS NOT NULL
+        GROUP BY assignment_id
+      ) latest ON latest.latest_attempt_id = attempt.id
+    ) latest_official ON latest_official.assignment_id = ta.id
     WHERE ta.employee_id = ? AND t.status = 'active'
     ORDER BY ta.id
     `,
@@ -212,6 +222,7 @@ export async function GET(request: Request) {
       allow_unlimited_practice: Boolean(item.allow_unlimited_practice),
       read_progress_percent: toNumber(item.read_progress_percent),
       official_score: toNumber(item.official_score),
+      official_cooldown_seconds: toNumber(item.official_cooldown_seconds) ?? 0,
       retake_request_count: toNumber(item.retake_request_count) ?? 0,
       retake_request_status: item.retake_request_status
     }))

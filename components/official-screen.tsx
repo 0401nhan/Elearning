@@ -7,13 +7,19 @@ import {
   Flag,
   Home,
   ListChecks,
-  RefreshCw,
   Save,
   ShieldCheck,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { canStartOfficialAttempt, isOfficialLocked, isOfficialPassed, officialResultLabel } from "@/lib/test-state";
+import {
+  OFFICIAL_RETAKE_COOLDOWN_MESSAGE,
+  canStartOfficialAttempt,
+  getNextOfficialAvailableAt,
+  isOfficialLocked,
+  isOfficialPassed,
+  officialResultLabel
+} from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
 import { QuestionMedia } from "./question-media";
 import { InfoTable } from "./shared";
@@ -53,6 +59,9 @@ type OfficialDetail = {
     official_attempts_used: number;
     assignment_status: string | null;
     official_score: number | null;
+    last_official_submitted_at: string | null;
+    next_official_available_at: string | null;
+    official_cooldown_seconds: number;
   };
   questions: OfficialQuestion[];
 };
@@ -64,6 +73,8 @@ type AttemptResult = {
   score: number;
   passScore: number;
   resultStatus: string;
+  officialCooldownSeconds?: number;
+  nextOfficialAvailableAt?: string | null;
 };
 
 type DraftSaveState = "idle" | "saving" | "saved" | "error";
@@ -73,22 +84,6 @@ function formatRemaining(totalSeconds: number) {
   const seconds = Math.max(0, totalSeconds) % 60;
 
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function hasPendingRetakeRequest(test: AssignedTest) {
-  return test.retakeRequestStatus === "pending";
-}
-
-function retakeButtonLabel(test: AssignedTest, isRequesting: boolean, hasPendingRequest: boolean) {
-  if (isRequesting) {
-    return "Đang gửi";
-  }
-
-  if (hasPendingRequest) {
-    return "Đã gửi yêu cầu";
-  }
-
-  return "Gửi yêu cầu thi lại";
 }
 
 export function OfficialScreen({
@@ -111,12 +106,13 @@ export function OfficialScreen({
   const [remainingSeconds, setRemainingSeconds] = useState(test.minutes * 60);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [error, setError] = useState("");
-  const [retakeMessage, setRetakeMessage] = useState("");
-  const [retakeError, setRetakeError] = useState("");
+  const [cooldownBlock, setCooldownBlock] = useState<{
+    message: string;
+    nextOfficialAvailableAt: string | null;
+    officialCooldownSeconds: number;
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isRequestingRetake, setIsRequestingRetake] = useState(false);
-  const [hasSubmittedRetakeRequest, setHasSubmittedRetakeRequest] = useState(false);
   const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [answerPulse, setAnswerPulse] = useState<{ questionId: number; answerId: number } | null>(null);
@@ -163,21 +159,21 @@ export function OfficialScreen({
         officialScore: detail.test.official_score,
         passScore: detail.test.pass_score,
         officialAttemptsUsed: detail.test.official_attempts_used,
-        maxOfficialAttempts: detail.test.max_official_attempts
+        maxOfficialAttempts: detail.test.max_official_attempts,
+        officialCooldownSeconds: detail.test.official_cooldown_seconds,
+        nextOfficialAvailableAt: detail.test.next_official_available_at
       }
     : test;
   const canStartOfficial = canStartOfficialAttempt(officialState);
   const officialDone = isOfficialLocked(officialState);
   const officialPassed = isOfficialPassed(officialState);
   const noOfficialAttempts = Boolean(detail && !canStartOfficial && !result && !officialDone);
-  const pendingRetakeRequestExists = hasSubmittedRetakeRequest || hasPendingRetakeRequest(test);
-  const attemptLimitLabel = detail
-    ? `${detail.test.official_attempts_used}/${detail.test.max_official_attempts} lượt`
-    : `${test.officialAttemptsUsed ?? 0}/${test.maxOfficialAttempts ?? 1} lượt`;
+  const nextOfficialAt = getNextOfficialAvailableAt(officialState);
 
   async function loadOfficial() {
     setIsLoading(true);
     setError("");
+    setCooldownBlock(null);
 
     try {
       const response = await fetch("/api/attempts/start", {
@@ -195,6 +191,14 @@ export function OfficialScreen({
       if (!response.ok) {
         if (response.status === 409) {
           onAttemptFinished?.();
+        }
+        if (response.status === 409 && responseData?.officialCooldownSeconds) {
+          setCooldownBlock({
+            message: responseData.error ?? OFFICIAL_RETAKE_COOLDOWN_MESSAGE,
+            nextOfficialAvailableAt: responseData.nextOfficialAvailableAt ?? null,
+            officialCooldownSeconds: Number(responseData.officialCooldownSeconds ?? 0)
+          });
+          return;
         }
         setError(responseData?.error ?? "Không thể tải bài chính thức.");
         return;
@@ -278,7 +282,6 @@ export function OfficialScreen({
   );
 
   useEffect(() => {
-    setHasSubmittedRetakeRequest(false);
     loadOfficial();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [test.id]);
@@ -465,38 +468,34 @@ export function OfficialScreen({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeQuestion, currentIndex, goToQuestion, isSubmitting, noOfficialAttempts, questions.length, result, selectOfficialAnswer]);
 
-  async function requestRetake() {
-    if (pendingRetakeRequestExists) {
-      setRetakeMessage("Yêu cầu thi lại của bài này đã được gửi và đang chờ duyệt.");
-      setRetakeError("");
-      return;
-    }
+  if (cooldownBlock) {
+    const nextDate = cooldownBlock.nextOfficialAvailableAt
+      ? new Date(cooldownBlock.nextOfficialAvailableAt.replace(" ", "T")).toLocaleDateString("vi-VN")
+      : null;
 
-    setRetakeMessage("");
-    setRetakeError("");
-    setIsRequestingRetake(true);
-
-    const response = await fetch("/api/retake-requests", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        testId: test.id,
-        reason: `Xin mở lại lượt thi chính thức cho bài ${detail?.test.title ?? test.title}.`
-      })
-    }).catch(() => null);
-    const responseData = await response?.json().catch(() => null);
-    setIsRequestingRetake(false);
-
-    if (!response?.ok) {
-      setRetakeError(responseData?.error ?? "Không thể gửi yêu cầu thi lại.");
-      return;
-    }
-
-    setHasSubmittedRetakeRequest(true);
-    setRetakeMessage(responseData?.message ?? "Yêu cầu thi lại đã được gửi và đang chờ duyệt.");
-    await onRefreshAssignments();
+    return (
+      <section className="official-exam official-exam-page">
+        <article className="panel result-card official-result-shell official-locked-result fail">
+          <h3>
+            <Clock3 size={21} />
+            {OFFICIAL_RETAKE_COOLDOWN_MESSAGE}
+          </h3>
+          <p>{cooldownBlock.message}</p>
+          <InfoTable
+            rows={[
+              ["Bài thi", test.title],
+              ["Trạng thái", "Chờ tuần sau"],
+              ["Mở lại", nextDate ?? "Tuần sau"]
+            ]}
+          />
+          <div>
+            <button className="primary-button" onClick={onHome}>
+              <Home size={17} /> Về trang chủ
+            </button>
+          </div>
+        </article>
+      </section>
+    );
   }
 
   if (result) {
@@ -522,17 +521,14 @@ export function OfficialScreen({
             ]}
           />
           {!passed && (
-            <>
-              {retakeError && <p className="login-error">{retakeError}</p>}
-              {retakeMessage && <p className="success-message">{retakeMessage}</p>}
-            </>
+            <p className="official-cooldown-note official-result-note">
+              {OFFICIAL_RETAKE_COOLDOWN_MESSAGE}
+              {result.nextOfficialAvailableAt
+                ? ` (${new Date(result.nextOfficialAvailableAt).toLocaleDateString("vi-VN")})`
+                : ""}
+            </p>
           )}
           <div>
-            {!passed && (
-              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake || pendingRetakeRequestExists}>
-                <RefreshCw size={17} /> {retakeButtonLabel(test, isRequestingRetake, pendingRetakeRequestExists)}
-              </button>
-            )}
             <button className="primary-button" onClick={onHome}>
               <Home size={17} /> Về trang chủ
             </button>
@@ -550,7 +546,11 @@ export function OfficialScreen({
             {officialPassed ? <CheckCircle2 size={21} /> : <X size={21} />}
             {officialResultLabel(officialState)}
           </h3>
-          <p>Bài chính thức đã được ghi nhận. Bạn không thể làm chính thức lại.</p>
+          <p>
+            {officialPassed
+              ? "Bài chính thức đã được ghi nhận. Bạn không thể làm chính thức lại."
+              : `${OFFICIAL_RETAKE_COOLDOWN_MESSAGE}${nextOfficialAt ? ` (${new Date(nextOfficialAt.replace(" ", "T")).toLocaleDateString("vi-VN")})` : ""}.`}
+          </p>
           <InfoTable
             rows={[
               ["Bài thi", detail?.test.title ?? test.title],
@@ -559,17 +559,12 @@ export function OfficialScreen({
             ]}
           />
           {!officialPassed && (
-            <>
-              {retakeError && <p className="login-error">{retakeError}</p>}
-              {retakeMessage && <p className="success-message">{retakeMessage}</p>}
-            </>
+            <p className="official-cooldown-note official-result-note">
+              {OFFICIAL_RETAKE_COOLDOWN_MESSAGE}
+              {nextOfficialAt ? ` (${new Date(nextOfficialAt.replace(" ", "T")).toLocaleDateString("vi-VN")})` : ""}
+            </p>
           )}
           <div>
-            {!officialPassed && (
-              <button className="outline-button" onClick={requestRetake} disabled={isRequestingRetake || pendingRetakeRequestExists}>
-                <RefreshCw size={17} /> {retakeButtonLabel(test, isRequestingRetake, pendingRetakeRequestExists)}
-              </button>
-            )}
             <button className="primary-button" onClick={onHome}>
               <Home size={17} /> Về trang chủ
             </button>
@@ -603,7 +598,7 @@ export function OfficialScreen({
               <Clock3 size={16} /> {detail?.test.duration_minutes ?? test.minutes} phút
             </span>
             <span>
-              <ShieldCheck size={16} /> Lượt chính thức: {attemptLimitLabel}
+              <ShieldCheck size={16} /> Lượt chính thức: 1 lần/tuần
             </span>
             <span className={`draft-save-status ${draftSaveState}`}>
               <Save size={16} /> {draftSaveLabel}
@@ -617,8 +612,8 @@ export function OfficialScreen({
             <section className="notice-panel official-lock-notice">
               <div>
                 <ShieldCheck size={20} />
-                <strong>Đã hết lượt làm chính thức</strong>
-                <span>Vui lòng liên hệ HR/Quản lý nếu cần mở thêm lượt thi.</span>
+                <strong>{OFFICIAL_RETAKE_COOLDOWN_MESSAGE}</strong>
+                <span>Mỗi tuần được thi chính thức 1 lần. Thi thử không giới hạn.</span>
               </div>
             </section>
           )}

@@ -24,6 +24,9 @@ type TestRow = RowDataPacket & {
   practice_attempt_count: number | null;
   official_attempts_used: number | null;
   official_score: string | number | null;
+  last_official_submitted_at: string | null;
+  next_official_available_at: string | null;
+  official_cooldown_seconds: number | null;
   due_at: string | null;
 };
 
@@ -73,7 +76,6 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const testId = Number(searchParams.get("testId") ?? 1);
   const mode = searchParams.get("mode") === "official" ? "official" : "practice";
-  const isStartingPractice = searchParams.get("startPractice") === "1";
 
   const tests = await queryRows<TestRow[]>(
     `
@@ -86,7 +88,7 @@ export async function GET(request: Request) {
       t.question_count,
       t.duration_minutes,
       t.pass_score,
-      (t.max_official_attempts + COALESCE(retake.approved_retake_count, 0)) AS max_official_attempts,
+      t.max_official_attempts,
       t.allow_unlimited_practice,
       t.randomize_questions,
       t.randomize_answers,
@@ -98,16 +100,23 @@ export async function GET(request: Request) {
       ta.practice_attempt_count,
       ta.official_attempts_used,
       ta.official_score,
+      DATE_FORMAT(latest_official.submitted_at, '%Y-%m-%d %H:%i:%s') AS last_official_submitted_at,
+      DATE_FORMAT(DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY), '%Y-%m-%d %H:%i:%s') AS next_official_available_at,
+      GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(DATE(latest_official.submitted_at), INTERVAL IF(DAYOFWEEK(latest_official.submitted_at) = 2, 7, MOD(9 - DAYOFWEEK(latest_official.submitted_at), 7)) DAY))) AS official_cooldown_seconds,
       DATE_FORMAT(ta.due_at, '%Y-%m-%d') AS due_at
     FROM tests t
     LEFT JOIN departments d ON d.id = t.department_id
     LEFT JOIN test_assignments ta ON ta.test_id = t.id AND ta.employee_id = ?
     LEFT JOIN (
-      SELECT assignment_id, COUNT(*) AS approved_retake_count
-      FROM retake_requests
-      WHERE status = 'approved'
-      GROUP BY assignment_id
-    ) retake ON retake.assignment_id = ta.id
+      SELECT attempt.*
+      FROM test_attempts attempt
+      JOIN (
+        SELECT assignment_id, MAX(id) AS latest_attempt_id
+        FROM test_attempts
+        WHERE mode = 'official' AND submitted_at IS NOT NULL
+        GROUP BY assignment_id
+      ) latest ON latest.latest_attempt_id = attempt.id
+    ) latest_official ON latest_official.assignment_id = ta.id
     WHERE t.id = ? AND t.status = 'active'
     LIMIT 1
     `,
@@ -140,17 +149,6 @@ export async function GET(request: Request) {
     return NextResponse.json(
       { error: "Vui lòng bắt đầu lượt thi chính thức để nhận đề cố định." },
       { status: 400 }
-    );
-  }
-
-  if (
-    isStartingPractice &&
-    !Boolean(test.allow_unlimited_practice) &&
-    Number(test.practice_attempt_count ?? 0) > 0
-  ) {
-    return NextResponse.json(
-      { error: "Bài test này chỉ cho phép làm thử 1 lần." },
-      { status: 409 }
     );
   }
 
@@ -210,6 +208,7 @@ export async function GET(request: Request) {
       practice_attempt_count: toNumber(test.practice_attempt_count) ?? 0,
       official_attempts_used: toNumber(test.official_attempts_used) ?? 0,
       official_score: toNumber(test.official_score),
+      official_cooldown_seconds: toNumber(test.official_cooldown_seconds) ?? 0,
       allow_unlimited_practice: Boolean(test.allow_unlimited_practice),
       randomize_questions: Boolean(test.randomize_questions),
       randomize_answers: Boolean(test.randomize_answers),

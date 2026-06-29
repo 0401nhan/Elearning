@@ -1,68 +1,27 @@
-import { BookOpen, CheckCircle2, ClipboardCheck, Eye, Pencil, RefreshCw, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { BookOpen, CheckCircle2, ClipboardCheck, Eye, Pencil, ShieldCheck } from "lucide-react";
 import {
+  OFFICIAL_RETAKE_COOLDOWN_MESSAGE,
   canStartPracticeAttempt,
+  getNextOfficialAvailableAt,
+  hasOfficialCooldown,
   isOfficialLocked,
-  isOfficialPassed,
   officialResultLabel,
   officialResultTone
 } from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
 import { StatusPill } from "./shared";
 
-function hasPendingRetakeRequest(test: AssignedTest) {
-  return test.retakeRequestStatus === "pending";
-}
-
-function retakeButtonLabel(test: AssignedTest, isRequesting: boolean) {
-  if (isRequesting) {
-    return "Đang gửi";
-  }
-
-  if (test.retakeRequestStatus === "pending") {
-    return "Đã gửi yêu cầu";
-  }
-
-  return "Gửi yêu cầu thi lại";
-}
-
 export function TestsPage({
   tests,
   onOpenTest,
   onPractice,
-  onOfficial,
-  onRequestRetake
+  onOfficial
 }: {
   tests: AssignedTest[];
   onOpenTest: (testId: number) => void;
   onPractice: (testId: number) => void;
   onOfficial: (testId: number) => void;
-  onRequestRetake: (test: AssignedTest) => Promise<string>;
 }) {
-  const [retakeActionTestId, setRetakeActionTestId] = useState<number | null>(null);
-  const [retakeError, setRetakeError] = useState("");
-  const [retakeSuccess, setRetakeSuccess] = useState("");
-
-  async function requestRetake(test: AssignedTest) {
-    if (hasPendingRetakeRequest(test)) {
-      setRetakeSuccess("Yêu cầu thi lại của bài này đã được gửi và đang chờ duyệt.");
-      return;
-    }
-
-    setRetakeActionTestId(test.id);
-    setRetakeError("");
-    setRetakeSuccess("");
-
-    try {
-      const message = await onRequestRetake(test);
-      setRetakeSuccess(message);
-    } catch (error) {
-      setRetakeError(error instanceof Error ? error.message : "Không thể gửi yêu cầu thi lại.");
-    } finally {
-      setRetakeActionTestId(null);
-    }
-  }
-
   return (
     <>
       <section className="page-header">
@@ -75,18 +34,14 @@ export function TestsPage({
         </button>
       </section>
 
-      {retakeError && <p className="login-error">{retakeError}</p>}
-      {retakeSuccess && <p className="success-message">{retakeSuccess}</p>}
-
       <section className="test-board">
         {tests.map((test) => {
           const Icon = test.icon;
           const officialDone = isOfficialLocked(test);
-          const officialPassed = isOfficialPassed(test);
           const officialTone = officialResultTone(test);
-          const officialButtonClass = officialDone && officialPassed ? `official-result-button ${officialTone}` : "primary-button";
-          const isRequestingRetake = retakeActionTestId === test.id;
-          const pendingRetakeRequestExists = hasPendingRetakeRequest(test);
+          const officialButtonClass = officialDone ? `official-result-button ${officialTone}` : "primary-button";
+          const officialCooldown = hasOfficialCooldown(test);
+          const nextOfficialAt = getNextOfficialAvailableAt(test);
           const canStartPractice = canStartPracticeAttempt(test);
 
           return (
@@ -125,17 +80,9 @@ export function TestsPage({
                   <Eye size={16} /> Chi tiết
                 </button>
                 <button className="warm-button" onClick={() => onPractice(test.id)} disabled={!canStartPractice}>
-                  <Pencil size={16} /> {canStartPractice ? "Làm thử" : "Hết lượt làm thử"}
+                  <Pencil size={16} /> Làm thử
                 </button>
-                {officialDone && !officialPassed ? (
-                  <button
-                    className="danger-outline-button"
-                    onClick={() => requestRetake(test)}
-                    disabled={isRequestingRetake || pendingRetakeRequestExists}
-                  >
-                    <RefreshCw size={16} /> {retakeButtonLabel(test, isRequestingRetake)}
-                  </button>
-                ) : (
+                <div className="official-action-stack">
                   <button
                     className={officialButtonClass}
                     onClick={() => onOfficial(test.id)}
@@ -144,7 +91,13 @@ export function TestsPage({
                     {officialDone ? <CheckCircle2 size={16} /> : <ShieldCheck size={16} />}
                     {officialDone ? officialResultLabel(test) : "Chính thức"}
                   </button>
-                )}
+                  {officialCooldown && (
+                    <span className="official-cooldown-note">
+                      {OFFICIAL_RETAKE_COOLDOWN_MESSAGE}
+                      {nextOfficialAt ? ` (${new Date(nextOfficialAt.replace(" ", "T")).toLocaleDateString("vi-VN")})` : ""}
+                    </span>
+                  )}
+                </div>
               </div>
             </article>
           );
@@ -167,7 +120,7 @@ export function TestsPage({
         <div>
           <ShieldCheck size={20} />
           <strong>Lượt chính thức</strong>
-          <span>Mỗi bài chính thức chỉ ghi nhận 1 lần, nếu chưa đạt cần liên hệ HR/Quản lý.</span>
+          <span>Mỗi tuần được thi chính thức 1 lần. Thi thử không giới hạn.</span>
         </div>
       </section>
     </>
