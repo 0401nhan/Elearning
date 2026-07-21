@@ -148,7 +148,7 @@ export function TestResultsAdminPage({
   const [departmentId, setDepartmentId] = useState("");
   const [status, setStatus] = useState("");
   const [testId, setTestId] = useState("");
-  const [timeRange, setTimeRange] = useState("30");
+  const [timeRange, setTimeRange] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [search, setSearch] = useState("");
@@ -435,6 +435,7 @@ export function TestResultsAdminPage({
             resetPage();
           }}
         >
+          <option value="">Tất cả</option>
           <option value="7">7 ngày qua</option>
           <option value="30">30 ngày qua</option>
           <option value="custom">Tùy chọn</option>

@@ -155,7 +155,7 @@ export async function GET(request: Request) {
   const departmentId = Number(searchParams.get("departmentId") ?? 0);
   const testId = Number(searchParams.get("testId") ?? 0);
   const status = cleanText(searchParams.get("status"));
-  const timeRange = searchParams.get("timeRange") ?? "30";
+  const timeRange = searchParams.get("timeRange") ?? "";
   const dateFrom = searchParams.get("dateFrom");
   const dateTo = searchParams.get("dateTo");
   const search = cleanText(searchParams.get("search"));

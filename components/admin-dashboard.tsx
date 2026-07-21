@@ -221,7 +221,7 @@ export function AdminDashboard({
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [testFilter, setTestFilter] = useState("");
-  const [timeRange, setTimeRange] = useState("30");
+  const [timeRange, setTimeRange] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [resultSearch, setResultSearch] = useState("");
@@ -593,6 +593,7 @@ export function AdminDashboard({
                     resetResultsPage();
                   }}
                 >
+                  <option value="">Tất cả</option>
                   <option value="7">7 ngày qua</option>
                   <option value="30">30 ngày qua</option>
                   <option value="custom">Tùy chọn</option>
