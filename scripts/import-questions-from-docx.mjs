@@ -338,15 +338,18 @@ async function getAdminCreatorId(connection) {
 }
 
 async function createTest(connection, creatorId, questions) {
+  const questionCount = questions.length;
+  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
+  const passScore = Number(((requiredCorrectAnswers / questionCount) * 100).toFixed(2));
   const [result] = await connection.execute(
     `
     INSERT INTO tests
       (code, title, department_id, description, question_count, duration_minutes, pass_score,
        max_official_attempts, allow_unlimited_practice, randomize_questions, randomize_answers,
        show_practice_answers, show_official_answers, status, created_by)
-    VALUES (?, ?, NULL, ?, ?, 30, 80.00, 1, 1, 1, 1, 1, 0, 'active', ?)
+    VALUES (?, ?, NULL, ?, ?, 30, ?, 1, 1, 1, 1, 1, 0, 'active', ?)
     `,
-    [TEST_CODE, TEST_TITLE, TEST_DESCRIPTION, questions.length, creatorId]
+    [TEST_CODE, TEST_TITLE, TEST_DESCRIPTION, questionCount, passScore, creatorId]
   );
 
   return result.insertId;

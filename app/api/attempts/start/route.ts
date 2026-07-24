@@ -3,6 +3,11 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import type { PoolConnection } from "mysql2/promise";
 import { getCurrentUser } from "@/lib/auth";
 import { toNumber, withTransaction } from "@/lib/db";
+import {
+  getConfiguredRequiredCorrectAnswers,
+  getPassScoreForRequiredCorrectAnswers,
+  getRequiredCorrectAnswers
+} from "@/lib/test-passing";
 
 type AssignmentLockRow = RowDataPacket & {
   assignment_id: number;
@@ -12,6 +17,7 @@ type AssignmentLockRow = RowDataPacket & {
   question_count: number;
   duration_minutes: number;
   pass_score: string | number;
+  required_correct_answers: number | null;
   max_official_attempts: number;
   randomize_questions: number;
   randomize_answers: number;
@@ -30,6 +36,7 @@ type AttemptRow = RowDataPacket & {
   attempt_no: number;
   started_at: string;
   elapsed_seconds: number;
+  pass_score_snapshot: string | number | null;
 };
 
 type CountRow = RowDataPacket & {
@@ -92,7 +99,8 @@ async function getAttemptRow(connection: PoolConnection, attemptId: number) {
       id,
       attempt_no,
       DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') AS started_at,
-      TIMESTAMPDIFF(SECOND, started_at, NOW()) AS elapsed_seconds
+      TIMESTAMPDIFF(SECOND, started_at, NOW()) AS elapsed_seconds,
+      pass_score_snapshot
     FROM test_attempts
     WHERE id = ?
     LIMIT 1
@@ -165,7 +173,7 @@ async function buildAttemptPayload(connection: PoolConnection, assignment: Assig
       id: Number(assignment.test_id),
       title: assignment.title,
       duration_minutes: Number(assignment.duration_minutes),
-      pass_score: toNumber(assignment.pass_score),
+      pass_score: toNumber(attempt.pass_score_snapshot) ?? toNumber(assignment.pass_score),
       max_official_attempts: Number(assignment.max_official_attempts),
       official_attempts_used: Number(assignment.official_attempts_used),
       assignment_status: assignment.assignment_status,
@@ -214,6 +222,7 @@ export async function POST(request: Request) {
         t.question_count,
         t.duration_minutes,
         t.pass_score,
+        t.required_correct_answers,
         t.max_official_attempts,
         t.randomize_questions,
         t.randomize_answers,
@@ -262,7 +271,8 @@ export async function POST(request: Request) {
         id,
         attempt_no,
         DATE_FORMAT(started_at, '%Y-%m-%d %H:%i:%s') AS started_at,
-        TIMESTAMPDIFF(SECOND, started_at, NOW()) AS elapsed_seconds
+        TIMESTAMPDIFF(SECOND, started_at, NOW()) AS elapsed_seconds,
+        pass_score_snapshot
       FROM test_attempts
       WHERE assignment_id = ?
         AND employee_id = ?
@@ -316,6 +326,17 @@ export async function POST(request: Request) {
       return { status: 400 as const, body: { error: "Bài test này chưa có câu hỏi đang hoạt động." } };
     }
 
+    const configuredRequiredCorrectAnswers = getConfiguredRequiredCorrectAnswers(assignment.required_correct_answers);
+    if (configuredRequiredCorrectAnswers !== null && configuredRequiredCorrectAnswers > questionRows.length) {
+      return {
+        status: 409 as const,
+        body: { error: "Số câu đúng để đạt lớn hơn số câu đang hoạt động của bài test." }
+      };
+    }
+
+    const requiredCorrectAnswers = getRequiredCorrectAnswers(questionRows.length, configuredRequiredCorrectAnswers);
+    const passScoreSnapshot = getPassScoreForRequiredCorrectAnswers(questionRows.length, requiredCorrectAnswers);
+
     const [attemptCountRows] = await connection.query<CountRow[]>(
       "SELECT COUNT(*) + 1 AS total FROM test_attempts WHERE assignment_id = ? AND mode = 'official'",
       [assignment.assignment_id]
@@ -325,10 +346,18 @@ export async function POST(request: Request) {
     const [attemptResult] = await connection.execute<ResultSetHeader>(
       `
       INSERT INTO test_attempts
-        (assignment_id, employee_id, test_id, mode, attempt_no, total_questions, is_recorded)
-      VALUES (?, ?, ?, 'official', ?, ?, 0)
+        (assignment_id, employee_id, test_id, mode, attempt_no, total_questions, required_correct_answers_snapshot, pass_score_snapshot, is_recorded)
+      VALUES (?, ?, ?, 'official', ?, ?, ?, ?, 0)
       `,
-      [assignment.assignment_id, employee.id, testId, attemptNo, questionRows.length]
+      [
+        assignment.assignment_id,
+        employee.id,
+        testId,
+        attemptNo,
+        questionRows.length,
+        requiredCorrectAnswers,
+        passScoreSnapshot
+      ]
     );
 
     const attemptId = Number(attemptResult.insertId);

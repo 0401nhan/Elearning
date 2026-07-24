@@ -633,7 +633,7 @@ function inlineQhseExplanation(answerLine) {
   return answerIndex >= 0 ? cleanText(line.slice(answerIndex)) : "";
 }
 
-function parseQhseParts(filePath) {
+function parseQhseParts(filePath, expectedPartCount = 4) {
   const paragraphs = readDocxParagraphObjects(filePath);
   const parts = [];
   let currentPart = null;
@@ -714,8 +714,8 @@ function parseQhseParts(filePath) {
     index = nextIndex - 1;
   }
 
-  if (parts.length !== 4) {
-    throw new Error(`Expected 4 QHSE parts, found ${parts.length}.`);
+  if (parts.length !== expectedPartCount) {
+    throw new Error(`Expected ${expectedPartCount} QHSE parts, found ${parts.length}.`);
   }
 
   for (const part of parts) {
@@ -1096,6 +1096,69 @@ function buildCombinedQhseBundle() {
   };
 }
 
+function extractZipContents(zipPath) {
+  const destination = mkdtempSync(path.join(os.tmpdir(), "eb-input-archive-"));
+  try {
+    execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        `Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(destination)} -Force`
+      ],
+      { stdio: "pipe" }
+    );
+    return destination;
+  } catch (error) {
+    rmSync(destination, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function buildQhseDepartmentBundle() {
+  const bundleRoot = inputDirectoryByCanonicalTitle("bai kiem tra qhse");
+  if (!bundleRoot) {
+    throw new Error("Missing input folder for BAI KIEM TRA QHSE.");
+  }
+
+  const sourceFiles = walkFiles(bundleRoot);
+  const questionFile = sourceFiles.find(
+    (filePath) =>
+      path.extname(filePath).toLowerCase() === ".docx" && ascii(path.basename(filePath)).startsWith("cau")
+  );
+  const materialArchive = sourceFiles.find((filePath) => path.extname(filePath).toLowerCase() === ".zip");
+  if (!questionFile || !materialArchive) {
+    throw new Error("BAI KIEM TRA QHSE requires a question DOCX and materials ZIP.");
+  }
+
+  const parts = parseQhseParts(questionFile, 11);
+  const extractedMaterialsDirectory = extractZipContents(materialArchive);
+  const materialFiles = walkFiles(extractedMaterialsDirectory)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".pdf")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  if (!materialFiles.length) {
+    rmSync(extractedMaterialsDirectory, { recursive: true, force: true });
+    throw new Error("BAI KIEM TRA QHSE materials ZIP does not contain PDF files.");
+  }
+
+  return {
+    family: "QHSE",
+    code: "QHSE_DEPARTMENT",
+    title: "BÀI KIỂM TRA QHSE",
+    description: `Imported from ${path.relative(root, bundleRoot)}.`,
+    departmentKey: "QHSE",
+    configuredQuestionCount: 30,
+    durationMinutes: 30,
+    materialFiles,
+    questionFiles: [questionFile],
+    materialTitlePrefix: "QHSE",
+    questions: parts.flatMap((part) => part.questions),
+    temporaryDirectories: [extractedMaterialsDirectory]
+  };
+}
+
 function inputDirectoryByCanonicalTitle(fragment) {
   if (!existsSync(inputRoot)) {
     return null;
@@ -1351,16 +1414,25 @@ async function ensureMaterial(connection, material, departmentId, creatorId) {
 async function ensureTest(connection, bundle, departmentId, creatorId) {
   const questionCount = bundle.configuredQuestionCount ?? bundle.questions.length;
   const durationMinutes = bundle.durationMinutes ?? Math.max(20, Math.ceil(questionCount * 0.6));
-  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
+  const [existingTests] = await connection.query(
+    "SELECT required_correct_answers FROM tests WHERE code = ? LIMIT 1",
+    [bundle.code]
+  );
+  const existingRequiredCorrectAnswers = Number(existingTests[0]?.required_correct_answers);
+  const configuredRequiredCorrectAnswers =
+    Number.isInteger(existingRequiredCorrectAnswers) && existingRequiredCorrectAnswers > 0
+      ? Math.min(existingRequiredCorrectAnswers, questionCount)
+      : null;
+  const requiredCorrectAnswers = configuredRequiredCorrectAnswers ?? (questionCount <= 1 ? questionCount : questionCount - 1);
   const passScore = questionCount > 0 ? Number(((requiredCorrectAnswers / questionCount) * 100).toFixed(2)) : 80;
 
   await connection.execute(
     `
     INSERT INTO tests
-      (code, title, department_id, description, question_count, duration_minutes, pass_score,
+      (code, title, department_id, description, question_count, duration_minutes, pass_score, required_correct_answers,
        max_official_attempts, allow_unlimited_practice, randomize_questions, randomize_answers,
        show_practice_answers, show_official_answers, status, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1, 1, 1, 0, 'active', ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, 1, 1, 1, 0, 'active', ?)
     ON DUPLICATE KEY UPDATE
       title = VALUES(title),
       department_id = VALUES(department_id),
@@ -1368,6 +1440,7 @@ async function ensureTest(connection, bundle, departmentId, creatorId) {
       question_count = VALUES(question_count),
       duration_minutes = VALUES(duration_minutes),
       pass_score = VALUES(pass_score),
+      required_correct_answers = VALUES(required_correct_answers),
       max_official_attempts = VALUES(max_official_attempts),
       allow_unlimited_practice = VALUES(allow_unlimited_practice),
       randomize_questions = VALUES(randomize_questions),
@@ -1377,7 +1450,17 @@ async function ensureTest(connection, bundle, departmentId, creatorId) {
       status = VALUES(status),
       created_by = COALESCE(created_by, VALUES(created_by))
     `,
-    [bundle.code, bundle.title, departmentId, bundle.description, questionCount, durationMinutes, passScore, creatorId]
+    [
+      bundle.code,
+      bundle.title,
+      departmentId,
+      bundle.description,
+      questionCount,
+      durationMinutes,
+      passScore,
+      configuredRequiredCorrectAnswers,
+      creatorId
+    ]
   );
 
   const [rows] = await connection.query("SELECT id FROM tests WHERE code = ? LIMIT 1", [bundle.code]);
@@ -1713,7 +1796,9 @@ async function main() {
     archiveOldInputTests: shouldArchiveOldInputTests,
     archiveSupersededTests: shouldArchiveSupersededTests
   } = parseArgs(process.argv.slice(2));
-  const bundles = [
+  let bundles = [];
+  try {
+    bundles = [
     ...(combined
       ? [
           ...(only === "all" || only === "hcns" ? [buildCombinedHcnsBundle()] : []),
@@ -1726,22 +1811,28 @@ async function main() {
     ...(only === "all" || only === "procedures" || only === "dieuphoi" || only === "ktvp"
       ? buildGenericProcedureBundles(only === "all" ? "procedures" : only)
       : []),
-    ...(only === "ktvp-combined" ? [buildCombinedKtvpBundle()] : [])
-  ];
+      ...(only === "ktvp-combined" ? [buildCombinedKtvpBundle()] : []),
+      ...(only === "qhse-department" ? [buildQhseDepartmentBundle()] : [])
+    ];
 
-  if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp", "ktvp-combined"].includes(only)) {
-    throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, ktvp, or ktvp-combined.");
+    if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp", "ktvp-combined", "qhse-department"].includes(only)) {
+      throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, ktvp, ktvp-combined, or qhse-department.");
+    }
+
+    if (!bundles.length) {
+      throw new Error("No bundles to import.");
+    }
+
+    const result = await importBundles(bundles, dryRun, {
+      archiveOldInputTests: shouldArchiveOldInputTests,
+      archiveSupersededTests: shouldArchiveSupersededTests
+    });
+    console.log(JSON.stringify({ only, combined, ...result }, null, 2));
+  } finally {
+    for (const directory of bundles.flatMap((bundle) => bundle.temporaryDirectories ?? [])) {
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
-
-  if (!bundles.length) {
-    throw new Error("No bundles to import.");
-  }
-
-  const result = await importBundles(bundles, dryRun, {
-    archiveOldInputTests: shouldArchiveOldInputTests,
-    archiveSupersededTests: shouldArchiveSupersededTests
-  });
-  console.log(JSON.stringify({ only, combined, ...result }, null, 2));
 }
 
 main()

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { getCurrentUser } from "@/lib/auth";
 import { withTransaction } from "@/lib/db";
+import { getPassScoreForRequiredCorrectAnswers, getRequiredCorrectAnswers } from "@/lib/test-passing";
 
 type SubmittedAnswer = {
   questionId: number;
@@ -14,6 +15,7 @@ type AssignmentLockRow = RowDataPacket & {
   test_id: number;
   question_count: number;
   pass_score: string | number;
+  required_correct_answers: number | null;
   allow_unlimited_practice: number;
   practice_attempt_count: number;
   official_attempts_used: number;
@@ -48,6 +50,7 @@ type OfficialAttemptLockRow = RowDataPacket & {
   elapsed_seconds: number;
   duration_minutes: number;
   pass_score: string | number;
+  required_correct_answers_snapshot: number | null;
   official_attempts_used: number;
   official_score: string | number | null;
   status: string;
@@ -71,28 +74,6 @@ type AttemptError = {
 function getPassScore(value: string | number | null | undefined) {
   const passScore = Number(value ?? 80);
   return Number.isFinite(passScore) ? passScore : 80;
-}
-
-function getRequiredCorrectAnswers(totalQuestions: number) {
-  const questionCount = Math.max(0, Math.floor(Number(totalQuestions)));
-  if (questionCount <= 1) {
-    return questionCount;
-  }
-
-  return questionCount - 1;
-}
-
-function getPassScoreForQuestionCount(totalQuestions: number) {
-  const questionCount = Math.max(0, Math.floor(Number(totalQuestions)));
-  if (!questionCount) {
-    return getPassScore(null);
-  }
-
-  return Number(((getRequiredCorrectAnswers(questionCount) / questionCount) * 100).toFixed(2));
-}
-
-function isPassingCorrectCount(correctAnswers: number, totalQuestions: number) {
-  return correctAnswers >= getRequiredCorrectAnswers(totalQuestions);
 }
 
 function getNextOfficialWeekStart(now = new Date()) {
@@ -219,6 +200,7 @@ async function submitOfficialAttempt(
         TIMESTAMPDIFF(SECOND, attempt.started_at, NOW()) AS elapsed_seconds,
         t.duration_minutes,
         t.pass_score,
+        attempt.required_correct_answers_snapshot,
         ta.official_attempts_used,
         ta.official_score,
         ta.status,
@@ -345,8 +327,12 @@ async function submitOfficialAttempt(
       return sum + (correctMap.get(`${answer.questionId}:${answer.selectedOptionId}`) ? 1 : 0);
     }, 0);
     const score = Number(((correctAnswers / totalQuestions) * 100).toFixed(2));
-    const passScoreSnapshot = getPassScoreForQuestionCount(totalQuestions);
-    const isPassed = isPassingCorrectCount(correctAnswers, totalQuestions);
+    const requiredCorrectAnswers = getRequiredCorrectAnswers(
+      totalQuestions,
+      attempt.required_correct_answers_snapshot
+    );
+    const passScoreSnapshot = getPassScoreForRequiredCorrectAnswers(totalQuestions, requiredCorrectAnswers);
+    const isPassed = correctAnswers >= requiredCorrectAnswers;
     const resultStatus = getResultStatus(score, passScoreSnapshot);
     const timeSpentSeconds = Math.min(
       maxDurationSeconds,
@@ -361,12 +347,22 @@ async function submitOfficialAttempt(
           total_questions = ?,
           correct_answers = ?,
           score = ?,
+          required_correct_answers_snapshot = ?,
           pass_score_snapshot = ?,
           result_status = ?,
           is_recorded = 1
       WHERE id = ?
       `,
-      [timeSpentSeconds, totalQuestions, correctAnswers, score, passScoreSnapshot, resultStatus, attemptId]
+      [
+        timeSpentSeconds,
+        totalQuestions,
+        correctAnswers,
+        score,
+        requiredCorrectAnswers,
+        passScoreSnapshot,
+        resultStatus,
+        attemptId
+      ]
     );
 
     await connection.execute(
@@ -440,6 +436,7 @@ export async function POST(request: Request) {
         ta.test_id,
         t.question_count,
         t.pass_score,
+        t.required_correct_answers,
         t.allow_unlimited_practice,
         ta.practice_attempt_count,
         ta.official_attempts_used,
@@ -567,8 +564,9 @@ export async function POST(request: Request) {
       return sum + (correctMap.get(`${answer.questionId}:${answer.selectedOptionId}`) ? 1 : 0);
     }, 0);
     const score = Number(((correctAnswers / totalQuestions) * 100).toFixed(2));
-    const passScoreSnapshot = getPassScoreForQuestionCount(totalQuestions);
-    const isPassed = isPassingCorrectCount(correctAnswers, totalQuestions);
+    const requiredCorrectAnswers = getRequiredCorrectAnswers(totalQuestions, assignment.required_correct_answers);
+    const passScoreSnapshot = getPassScoreForRequiredCorrectAnswers(totalQuestions, requiredCorrectAnswers);
+    const isPassed = correctAnswers >= requiredCorrectAnswers;
     const resultStatus = getResultStatus(score, passScoreSnapshot);
 
     const [attemptCountRows] = await connection.query<CountRow[]>(
@@ -580,8 +578,8 @@ export async function POST(request: Request) {
     const [attemptResult] = await connection.execute<ResultSetHeader>(
       `
       INSERT INTO test_attempts
-        (assignment_id, employee_id, test_id, mode, attempt_no, submitted_at, time_spent_seconds, total_questions, correct_answers, score, pass_score_snapshot, result_status, is_recorded)
-      VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)
+        (assignment_id, employee_id, test_id, mode, attempt_no, submitted_at, time_spent_seconds, total_questions, correct_answers, score, required_correct_answers_snapshot, pass_score_snapshot, result_status, is_recorded)
+      VALUES (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         assignment.assignment_id,
@@ -593,6 +591,7 @@ export async function POST(request: Request) {
         totalQuestions,
         correctAnswers,
         score,
+        requiredCorrectAnswers,
         passScoreSnapshot,
         resultStatus,
         mode === "official" ? 1 : 0

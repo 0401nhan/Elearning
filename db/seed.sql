@@ -74,14 +74,14 @@ INSERT INTO employee_roles (employee_id, role_id) VALUES
 INSERT INTO tests
   (id, code, title, department_id, description, question_count, duration_minutes, pass_score, created_by)
 VALUES
-  (1, 'HCNS_RULES', 'Test Quy định HCNS', 1, 'Kiểm tra kiến thức về quy định, chính sách và quy trình nhân sự.', 40, 20, 80.00, 6),
-  (2, 'HSE_RULES', 'Test Quy định HSE', 2, 'Kiểm tra quy định HSE và an toàn lao động.', 40, 20, 80.00, 6),
-  (3, 'ATLĐ', 'An toàn lao động (ATLĐ)', 2, 'Kiểm tra kiến thức an toàn lao động tại hiện trường.', 20, 15, 80.00, 6),
-  (4, 'FIELD_WORKFLOW', 'Quy trình làm việc hiện trường', 2, 'Quy trình làm việc và báo cáo hiện trường.', 25, 20, 80.00, 6),
-  (5, 'QUALITY_CONTROL', 'Kiểm soát chất lượng thi công', 4, 'Quy định nghiệm thu, kiểm soát lỗi và bàn giao hiện trường.', 30, 25, 75.00, 6),
-  (6, 'IT_SECURITY', 'An toàn thông tin nội bộ', 3, 'Kiểm tra nhận thức bảo mật tài khoản, dữ liệu và thiết bị làm việc.', 25, 18, 80.00, 6),
-  (7, 'FINANCE_PROCESS', 'Quy trình chứng từ kế toán', 6, 'Kiểm tra quy định lập, duyệt và lưu trữ chứng từ thanh toán.', 20, 15, 75.00, 6),
-  (8, 'OPERATION_COORDINATION', 'Điều phối vận hành dự án', 5, 'Quy trình điều phối nhân sự, vật tư, lịch thi công và báo cáo tiến độ.', 30, 22, 80.00, 6)
+  (1, 'HCNS_RULES', 'Test Quy định HCNS', 1, 'Kiểm tra kiến thức về quy định, chính sách và quy trình nhân sự.', 40, 20, 97.50, 6),
+  (2, 'HSE_RULES', 'Test Quy định HSE', 2, 'Kiểm tra quy định HSE và an toàn lao động.', 40, 20, 97.50, 6),
+  (3, 'ATLĐ', 'An toàn lao động (ATLĐ)', 2, 'Kiểm tra kiến thức an toàn lao động tại hiện trường.', 20, 15, 95.00, 6),
+  (4, 'FIELD_WORKFLOW', 'Quy trình làm việc hiện trường', 2, 'Quy trình làm việc và báo cáo hiện trường.', 25, 20, 96.00, 6),
+  (5, 'QUALITY_CONTROL', 'Kiểm soát chất lượng thi công', 4, 'Quy định nghiệm thu, kiểm soát lỗi và bàn giao hiện trường.', 30, 25, 96.67, 6),
+  (6, 'IT_SECURITY', 'An toàn thông tin nội bộ', 3, 'Kiểm tra nhận thức bảo mật tài khoản, dữ liệu và thiết bị làm việc.', 25, 18, 96.00, 6),
+  (7, 'FINANCE_PROCESS', 'Quy trình chứng từ kế toán', 6, 'Kiểm tra quy định lập, duyệt và lưu trữ chứng từ thanh toán.', 20, 15, 95.00, 6),
+  (8, 'OPERATION_COORDINATION', 'Điều phối vận hành dự án', 5, 'Quy trình điều phối nhân sự, vật tư, lịch thi công và báo cáo tiến độ.', 30, 22, 96.67, 6)
 ON DUPLICATE KEY UPDATE
   title = VALUES(title),
   department_id = VALUES(department_id),

@@ -138,7 +138,7 @@ export async function GET(request: Request) {
       t.description,
       t.question_count,
       t.duration_minutes,
-      t.pass_score,
+      COALESCE(latest_official.pass_score_snapshot, t.pass_score) AS pass_score,
       t.allow_unlimited_practice,
       DATE_FORMAT(ta.due_at, '%Y-%m-%d') AS due_at,
       ta.status,

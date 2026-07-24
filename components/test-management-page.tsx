@@ -30,6 +30,8 @@ type ManagedTest = {
   questionCount: number;
   durationMinutes: number;
   passScore: number;
+  requiredCorrectAnswers: number;
+  usesDefaultPassRule: boolean;
   maxOfficialAttempts: number;
   allowUnlimitedPractice: boolean;
   randomizeQuestions: boolean;
@@ -105,6 +107,8 @@ type TestForm = {
   questionCount: string;
   durationMinutes: string;
   passScore: string;
+  requiredCorrectAnswers: string;
+  usesDefaultPassRule: boolean;
   maxOfficialAttempts: string;
   allowUnlimitedPractice: boolean;
   randomizeQuestions: boolean;
@@ -115,9 +119,37 @@ type TestForm = {
   materialIds: number[];
 };
 
-function getPassScoreForQuestionCount(value: string) {
-  const questionCount = Math.max(1, Math.floor(Number(value) || 1));
-  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
+function getQuestionCount(value: string) {
+  const questionCount = Math.floor(Number(value));
+  return Number.isFinite(questionCount) ? Math.min(300, Math.max(1, questionCount)) : 1;
+}
+
+function getDefaultRequiredCorrectAnswers(value: string) {
+  const questionCount = getQuestionCount(value);
+  return questionCount <= 1 ? questionCount : questionCount - 1;
+}
+
+function getRequiredCorrectAnswers(questionCountValue: string, requiredCorrectAnswersValue: string, usesDefaultPassRule: boolean) {
+  const questionCount = getQuestionCount(questionCountValue);
+  if (usesDefaultPassRule) {
+    return getDefaultRequiredCorrectAnswers(questionCountValue);
+  }
+
+  const requiredCorrectAnswers = Math.floor(Number(requiredCorrectAnswersValue));
+  return Number.isFinite(requiredCorrectAnswers) ? Math.min(questionCount, Math.max(1, requiredCorrectAnswers)) : 1;
+}
+
+function getPassScoreForRequiredCorrectAnswers(
+  questionCountValue: string,
+  requiredCorrectAnswersValue: string,
+  usesDefaultPassRule: boolean
+) {
+  const questionCount = getQuestionCount(questionCountValue);
+  const requiredCorrectAnswers = getRequiredCorrectAnswers(
+    questionCountValue,
+    requiredCorrectAnswersValue,
+    usesDefaultPassRule
+  );
   const passScore = (requiredCorrectAnswers / questionCount) * 100;
   return passScore.toFixed(2).replace(/\.?0+$/, "");
 }
@@ -129,7 +161,9 @@ const emptyForm: TestForm = {
   description: "",
   questionCount: "40",
   durationMinutes: "20",
-  passScore: getPassScoreForQuestionCount("40"),
+  passScore: getPassScoreForRequiredCorrectAnswers("40", "39", true),
+  requiredCorrectAnswers: "39",
+  usesDefaultPassRule: true,
   maxOfficialAttempts: "1",
   allowUnlimitedPractice: true,
   randomizeQuestions: true,
@@ -207,6 +241,8 @@ function toForm(test: ManagedTest): TestForm {
     questionCount: String(test.questionCount),
     durationMinutes: String(test.durationMinutes),
     passScore: String(test.passScore),
+    requiredCorrectAnswers: String(test.requiredCorrectAnswers),
+    usesDefaultPassRule: test.usesDefaultPassRule,
     maxOfficialAttempts: String(test.maxOfficialAttempts),
     allowUnlimitedPractice: test.allowUnlimitedPractice,
     randomizeQuestions: test.randomizeQuestions,
@@ -227,6 +263,7 @@ function getPayload(form: TestForm) {
     questionCount: Number(form.questionCount),
     durationMinutes: Number(form.durationMinutes),
     passScore: Number(form.passScore),
+    requiredCorrectAnswers: form.usesDefaultPassRule ? null : Number(form.requiredCorrectAnswers),
     maxOfficialAttempts: Number(form.maxOfficialAttempts),
     allowUnlimitedPractice: form.allowUnlimitedPractice,
     randomizeQuestions: form.randomizeQuestions,
@@ -242,6 +279,7 @@ function getRules(test: ManagedTest) {
   return [
     ["Làm thử", test.allowUnlimitedPractice ? "Không giới hạn" : "1 lần", test.allowUnlimitedPractice ? "ok" : "info"],
     ["Làm chính thức", `${test.maxOfficialAttempts} lần`, "info"],
+    ["Điều kiện đạt", `${test.requiredCorrectAnswers}/${test.questionCount} câu`, "ok"],
     ["Random câu hỏi", test.randomizeQuestions ? "Có" : "Không", test.randomizeQuestions ? "ok" : "warn"],
     ["Random đáp án", test.randomizeAnswers ? "Có" : "Không", test.randomizeAnswers ? "ok" : "warn"],
     ["Đáp án khi làm thử", test.showPracticeAnswers ? "Có" : "Không", test.showPracticeAnswers ? "ok" : "warn"],
@@ -765,15 +803,81 @@ export function TestManagementPage() {
                     min={1}
                     max={300}
                     value={form.questionCount}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const questionCount = event.target.value;
+                      const requiredCorrectAnswers = getRequiredCorrectAnswers(
+                        questionCount,
+                        form.requiredCorrectAnswers,
+                        form.usesDefaultPassRule
+                      );
                       setForm({
                         ...form,
-                        questionCount: event.target.value,
-                        passScore: getPassScoreForQuestionCount(event.target.value)
-                      })
-                    }
+                        questionCount,
+                        requiredCorrectAnswers: String(requiredCorrectAnswers),
+                        passScore: getPassScoreForRequiredCorrectAnswers(
+                          questionCount,
+                          String(requiredCorrectAnswers),
+                          form.usesDefaultPassRule
+                        )
+                      });
+                    }}
                   />
                 </div>
+              </label>
+              <label className="field">
+                <span>Số câu đúng để đạt</span>
+                <div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={getQuestionCount(form.questionCount)}
+                    value={form.requiredCorrectAnswers}
+                    disabled={form.usesDefaultPassRule}
+                    onChange={(event) => {
+                      const requiredCorrectAnswers = getRequiredCorrectAnswers(
+                        form.questionCount,
+                        event.target.value,
+                        false
+                      );
+                      setForm({
+                        ...form,
+                        requiredCorrectAnswers: String(requiredCorrectAnswers),
+                        usesDefaultPassRule: false,
+                        passScore: getPassScoreForRequiredCorrectAnswers(
+                          form.questionCount,
+                          String(requiredCorrectAnswers),
+                          false
+                        )
+                      });
+                    }}
+                  />
+                  <small>/ {getQuestionCount(form.questionCount)} câu</small>
+                </div>
+                <small>
+                  <input
+                    type="checkbox"
+                    checked={form.usesDefaultPassRule}
+                    onChange={(event) => {
+                      const usesDefaultPassRule = event.target.checked;
+                      const requiredCorrectAnswers = getRequiredCorrectAnswers(
+                        form.questionCount,
+                        form.requiredCorrectAnswers,
+                        usesDefaultPassRule
+                      );
+                      setForm({
+                        ...form,
+                        requiredCorrectAnswers: String(requiredCorrectAnswers),
+                        usesDefaultPassRule,
+                        passScore: getPassScoreForRequiredCorrectAnswers(
+                          form.questionCount,
+                          String(requiredCorrectAnswers),
+                          usesDefaultPassRule
+                        )
+                      });
+                    }}
+                  />
+                  Dùng mặc định: sai tối đa 1 câu
+                </small>
               </label>
               <label className="field">
                 <span>Thời gian làm bài</span>

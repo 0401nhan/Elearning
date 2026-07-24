@@ -261,6 +261,59 @@ async function backfillAttemptSnapshots(connection) {
   console.log("Backfilled attempt snapshots.");
 }
 
+async function backfillDefaultTestPassScores(connection) {
+  await connection.query(`
+    UPDATE tests
+    SET pass_score = ROUND(
+      (
+        CASE
+          WHEN question_count <= 1 THEN question_count
+          ELSE question_count - 1
+        END / question_count
+      ) * 100,
+      2
+    )
+    WHERE required_correct_answers IS NULL
+      AND question_count > 0
+      AND pass_score <> ROUND(
+        (
+          CASE
+            WHEN question_count <= 1 THEN question_count
+            ELSE question_count - 1
+          END / question_count
+        ) * 100,
+        2
+      )
+  `);
+  console.log("Aligned default test pass scores.");
+}
+
+async function snapshotOpenAttemptPassRules(connection) {
+  await connection.query(`
+    UPDATE test_attempts
+    SET required_correct_answers_snapshot = CASE
+          WHEN total_questions <= 1 THEN total_questions
+          ELSE total_questions - 1
+        END,
+        pass_score_snapshot = COALESCE(
+          pass_score_snapshot,
+          ROUND(
+            (
+              CASE
+                WHEN total_questions <= 1 THEN total_questions
+                ELSE total_questions - 1
+              END / total_questions
+            ) * 100,
+            2
+          )
+        )
+    WHERE submitted_at IS NULL
+      AND required_correct_answers_snapshot IS NULL
+      AND total_questions > 0
+  `);
+  console.log("Snapshotted pass rules for open attempts.");
+}
+
 async function migrate() {
   await loadEnvFile(".env");
   await loadEnvFile(".env.local");
@@ -270,7 +323,14 @@ async function migrate() {
     await ensureNotificationReadsTable(connection);
     await addColumnIfMissing(connection, "questions", "image_url", "image_url VARCHAR(500) NULL AFTER question_text");
     await addColumnIfMissing(connection, "answer_options", "image_url", "image_url VARCHAR(500) NULL AFTER option_text");
+    await addColumnIfMissing(connection, "tests", "required_correct_answers", "required_correct_answers INT NULL AFTER pass_score");
     await addColumnIfMissing(connection, "test_attempts", "pass_score_snapshot", "pass_score_snapshot DECIMAL(5,2) NULL AFTER score");
+    await addColumnIfMissing(
+      connection,
+      "test_attempts",
+      "required_correct_answers_snapshot",
+      "required_correct_answers_snapshot INT NULL AFTER score"
+    );
     await ensureAttemptQuestionOptionsTable(connection);
 
     await dropForeignKeyIfExists(connection, "attempt_questions", "fk_attempt_questions_question");
@@ -301,6 +361,8 @@ async function migrate() {
 
     await ensureBaselineRoles(connection);
     await backfillAttemptSnapshots(connection);
+    await backfillDefaultTestPassScores(connection);
+    await snapshotOpenAttemptPassRules(connection);
     console.log("Database migrations completed.");
   } finally {
     await connection.end();

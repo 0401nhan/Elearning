@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { canManageAssignments, getCurrentUser } from "@/lib/auth";
 import { executeQuery, queryRows, withTransaction } from "@/lib/db";
+import { getCustomRequiredCorrectAnswers, getPassScoreForRequiredCorrectAnswers } from "@/lib/test-passing";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -47,11 +48,6 @@ function getIntegerField(value: unknown, fallback: number, min: number, max: num
 function getStatus(value: unknown) {
   const status = String(value ?? "active").trim();
   return TEST_STATUSES.has(status) ? status : "active";
-}
-
-function getPassScoreForQuestionCount(questionCount: number) {
-  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
-  return Number(((requiredCorrectAnswers / questionCount) * 100).toFixed(2));
 }
 
 function parseMaterialIds(value: unknown) {
@@ -190,7 +186,8 @@ export async function PATCH(request: Request, context: RouteContext) {
   const description = cleanText(body?.description);
   const questionCount = getIntegerField(body?.questionCount, 40, 1, 300);
   const durationMinutes = getIntegerField(body?.durationMinutes, 20, 1, 600);
-  const passScore = getPassScoreForQuestionCount(questionCount);
+  const requiredCorrectAnswers = getCustomRequiredCorrectAnswers(body?.requiredCorrectAnswers, questionCount);
+  const passScore = getPassScoreForRequiredCorrectAnswers(questionCount, requiredCorrectAnswers);
   const maxOfficialAttempts = getIntegerField(body?.maxOfficialAttempts, 1, 1, 20);
   const status = getStatus(body?.status);
   const materialIds = parseMaterialIds(body?.materialIds);
@@ -211,6 +208,7 @@ export async function PATCH(request: Request, context: RouteContext) {
             question_count = ?,
             duration_minutes = ?,
             pass_score = ?,
+            required_correct_answers = ?,
             max_official_attempts = ?,
             allow_unlimited_practice = ?,
             randomize_questions = ?,
@@ -228,6 +226,7 @@ export async function PATCH(request: Request, context: RouteContext) {
           questionCount,
           durationMinutes,
           passScore,
+          requiredCorrectAnswers,
           maxOfficialAttempts,
           body?.allowUnlimitedPractice ? 1 : 0,
           body?.randomizeQuestions ? 1 : 0,

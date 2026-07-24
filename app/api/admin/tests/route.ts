@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { canManageAssignments, getCurrentUser } from "@/lib/auth";
 import { queryRows, toNumber, withTransaction } from "@/lib/db";
+import {
+  getCustomRequiredCorrectAnswers,
+  getPassScoreForRequiredCorrectAnswers,
+  getRequiredCorrectAnswers
+} from "@/lib/test-passing";
 
 type TestRow = RowDataPacket & {
   id: number;
@@ -13,6 +18,7 @@ type TestRow = RowDataPacket & {
   question_count: number;
   duration_minutes: number;
   pass_score: string | number;
+  required_correct_answers: number | null;
   max_official_attempts: number;
   allow_unlimited_practice: number;
   randomize_questions: number;
@@ -87,11 +93,6 @@ function getStatus(value: unknown) {
   return TEST_STATUSES.has(status) ? status : "active";
 }
 
-function getPassScoreForQuestionCount(questionCount: number) {
-  const requiredCorrectAnswers = questionCount <= 1 ? questionCount : questionCount - 1;
-  return Number(((requiredCorrectAnswers / questionCount) * 100).toFixed(2));
-}
-
 function parseMaterialIds(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
@@ -102,6 +103,7 @@ function parseMaterialIds(value: unknown) {
 }
 
 function mapTest(row: TestRow) {
+  const requiredCorrectAnswers = getRequiredCorrectAnswers(row.question_count, row.required_correct_answers);
   return {
     id: row.id,
     code: row.code,
@@ -111,7 +113,9 @@ function mapTest(row: TestRow) {
     description: row.description,
     questionCount: row.question_count,
     durationMinutes: row.duration_minutes,
-    passScore: toNumber(row.pass_score) ?? 80,
+    passScore: toNumber(row.pass_score) ?? getPassScoreForRequiredCorrectAnswers(row.question_count, row.required_correct_answers),
+    requiredCorrectAnswers,
+    usesDefaultPassRule: row.required_correct_answers === null,
     maxOfficialAttempts: row.max_official_attempts,
     allowUnlimitedPractice: Boolean(row.allow_unlimited_practice),
     randomizeQuestions: Boolean(row.randomize_questions),
@@ -217,6 +221,7 @@ export async function GET(request: Request) {
       t.question_count,
       t.duration_minutes,
       t.pass_score,
+      t.required_correct_answers,
       t.max_official_attempts,
       t.allow_unlimited_practice,
       t.randomize_questions,
@@ -248,6 +253,7 @@ export async function GET(request: Request) {
       t.question_count,
       t.duration_minutes,
       t.pass_score,
+      t.required_correct_answers,
       t.max_official_attempts,
       t.allow_unlimited_practice,
       t.randomize_questions,
@@ -301,7 +307,8 @@ export async function POST(request: Request) {
   const description = cleanText(body?.description);
   const questionCount = getIntegerField(body?.questionCount, 40, 1, 300);
   const durationMinutes = getIntegerField(body?.durationMinutes, 20, 1, 600);
-  const passScore = getPassScoreForQuestionCount(questionCount);
+  const requiredCorrectAnswers = getCustomRequiredCorrectAnswers(body?.requiredCorrectAnswers, questionCount);
+  const passScore = getPassScoreForRequiredCorrectAnswers(questionCount, requiredCorrectAnswers);
   const maxOfficialAttempts = getIntegerField(body?.maxOfficialAttempts, 1, 1, 20);
   const status = getStatus(body?.status);
   const materialIds = parseMaterialIds(body?.materialIds);
@@ -315,10 +322,10 @@ export async function POST(request: Request) {
       const [result] = await connection.execute<ResultSetHeader>(
         `
         INSERT INTO tests
-          (code, title, department_id, description, question_count, duration_minutes, pass_score,
+          (code, title, department_id, description, question_count, duration_minutes, pass_score, required_correct_answers,
            max_official_attempts, allow_unlimited_practice, randomize_questions, randomize_answers,
            show_practice_answers, show_official_answers, status, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           code,
@@ -328,6 +335,7 @@ export async function POST(request: Request) {
           questionCount,
           durationMinutes,
           passScore,
+          requiredCorrectAnswers,
           maxOfficialAttempts,
           body?.allowUnlimitedPractice ? 1 : 0,
           body?.randomizeQuestions ? 1 : 0,
