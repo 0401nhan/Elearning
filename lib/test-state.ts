@@ -29,7 +29,7 @@ export function getOfficialCooldownSeconds(test: OfficialResultInput) {
 }
 
 export function hasOfficialCooldown(test: OfficialResultInput) {
-  return getOfficialCooldownSeconds(test) > 0;
+  return !isOfficialPassed(test) && getOfficialCooldownSeconds(test) > 0;
 }
 
 export function getNextOfficialAvailableAt(test: OfficialResultInput) {
