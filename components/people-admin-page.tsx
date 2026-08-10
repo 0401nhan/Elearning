@@ -11,6 +11,8 @@ import {
   Users
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { AdminDataLoading } from "./admin-data-loading";
+import { AdminConfirmDialog, AdminToast, useAdminDialogEscape } from "./admin-feedback";
 import { Avatar } from "./shared";
 
 type Employee = {
@@ -196,8 +198,13 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingDeleteEmployee, setPendingDeleteEmployee] = useState<Employee | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useAdminDialogEscape(isModalOpen, () => setIsModalOpen(false), isSaving);
 
   const pagination = data?.pagination ?? { page, pageSize: EMPLOYEE_PAGE_SIZE, total: 0, totalPages: 1 };
   const onlineThreshold = data?.summary.onlineThresholdMinutes ?? DEFAULT_ONLINE_THRESHOLD_MINUTES;
@@ -316,29 +323,26 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
     }
 
     setIsModalOpen(false);
+    setSuccess(isEdit ? "Đã cập nhật thông tin nhân sự." : "Đã thêm nhân sự mới.");
     await loadEmployees();
   }
 
-  async function handleDelete(employee: Employee) {
-    if (readOnly) {
-      return;
-    }
+  async function confirmDeleteEmployee() {
+    if (readOnly || !pendingDeleteEmployee) return;
 
-    const ok = window.confirm(
-      `Xóa nhân sự ${employee.fullName}? Bản ghi sẽ bị xóa khỏi database và có thể tạo lại cùng mã/username.`
-    );
-    if (!ok) {
-      return;
-    }
-
-    const response = await fetch(`/api/admin/employees/${employee.id}`, { method: "DELETE" }).catch(() => null);
+    setError("");
+    setIsDeleting(true);
+    const response = await fetch(`/api/admin/employees/${pendingDeleteEmployee.id}`, { method: "DELETE" }).catch(() => null);
     const responseData = await response?.json().catch(() => null);
+    setIsDeleting(false);
 
     if (!response?.ok) {
       setError(responseData?.error ?? "Không thể xóa nhân sự.");
       return;
     }
 
+    setPendingDeleteEmployee(null);
+    setSuccess("Đã xóa nhân sự.");
     await loadEmployees();
   }
 
@@ -443,6 +447,8 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
       </section>
 
       {error && <p className="login-error">{error}</p>}
+      <AdminToast message={success} onDismiss={() => setSuccess("")} />
+      {isLoading && <AdminDataLoading label="Đang tải danh sách nhân sự..." floating={Boolean(data)} />}
 
       <section className="panel admin-table-panel">
         <div className="section-title">
@@ -508,7 +514,7 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
                           <button className="table-icon" onClick={() => openEditModal(employee)} aria-label="Sửa nhân sự">
                             <Edit3 size={16} />
                           </button>
-                          <button className="table-icon danger" onClick={() => handleDelete(employee)} aria-label="Xóa nhân sự">
+                          <button className="table-icon danger" onClick={() => setPendingDeleteEmployee(employee)} aria-label="Xóa nhân sự">
                             <Trash2 size={16} />
                           </button>
                         </span>
@@ -561,10 +567,16 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
 
       {isModalOpen && (
         <div className="modal-backdrop">
-          <form className="employee-modal" onSubmit={handleSubmit}>
+          <form
+            className="employee-modal"
+            onSubmit={handleSubmit}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="employee-modal-title"
+          >
             <header>
               <div>
-                <h3>{form.id ? "Sửa nhân sự" : "Thêm nhân sự"}</h3>
+                <h3 id="employee-modal-title">{form.id ? "Sửa nhân sự" : "Thêm nhân sự"}</h3>
                 <p>{form.id ? "Cập nhật hồ sơ và phân quyền." : "Tạo tài khoản đăng nhập mới."}</p>
               </div>
               <button className="outline-button" type="button" onClick={() => setIsModalOpen(false)}>
@@ -716,6 +728,17 @@ export function PeopleAdminPage({ readOnly = false }: { readOnly?: boolean } = {
           </form>
         </div>
       )}
+
+      <AdminConfirmDialog
+        open={Boolean(pendingDeleteEmployee)}
+        title="Xóa nhân sự?"
+        description={`Hồ sơ “${pendingDeleteEmployee?.fullName ?? "nhân sự này"}” sẽ bị xóa khỏi hệ thống. Hành động này không thể hoàn tác.`}
+        error={error}
+        confirmLabel="Xóa nhân sự"
+        isSubmitting={isDeleting}
+        onCancel={() => setPendingDeleteEmployee(null)}
+        onConfirm={() => void confirmDeleteEmployee()}
+      />
     </>
   );
 }

@@ -21,6 +21,7 @@ import {
   officialResultLabel
 } from "@/lib/test-state";
 import type { AssignedTest } from "@/lib/types";
+import { AdminConfirmDialog } from "./admin-feedback";
 import { QuestionMedia } from "./question-media";
 import { InfoTable } from "./shared";
 
@@ -116,6 +117,7 @@ export function OfficialScreen({
   const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [answerPulse, setAnswerPulse] = useState<{ questionId: number; answerId: number } | null>(null);
+  const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
   const autoSubmitRef = useRef(false);
   const deadlineAtRef = useRef<number | null>(null);
   const activeQuestionRef = useRef<HTMLDivElement | null>(null);
@@ -128,7 +130,12 @@ export function OfficialScreen({
       }
 
       element.focus({ preventScroll: true });
-      element.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+      const bounds = element.getBoundingClientRect();
+      const isVisible = bounds.top >= 12 && bounds.bottom <= window.innerHeight - 12;
+
+      if (!isVisible) {
+        element.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      }
     });
   }, []);
 
@@ -345,13 +352,8 @@ export function OfficialScreen({
 
   function handleSubmitOfficial() {
     if (unansweredCount > 0) {
-      const confirmed = window.confirm(
-        `Bạn còn ${unansweredCount} câu chưa trả lời. Các câu trống sẽ được tính là sai. Vẫn nộp bài?`
-      );
-
-      if (!confirmed) {
-        return;
-      }
+      setIsSubmitConfirmOpen(true);
+      return;
     }
 
     void submitOfficial();
@@ -764,6 +766,18 @@ export function OfficialScreen({
           </section>
         </aside>
       </div>
+      <AdminConfirmDialog
+        open={isSubmitConfirmOpen}
+        title="Nộp bài khi còn câu trống?"
+        description={`Bạn còn ${unansweredCount} câu chưa trả lời. Các câu trống sẽ được tính là sai.`}
+        confirmLabel="Vẫn nộp bài"
+        isSubmitting={isSubmitting}
+        onCancel={() => setIsSubmitConfirmOpen(false)}
+        onConfirm={() => {
+          setIsSubmitConfirmOpen(false);
+          void submitOfficial();
+        }}
+      />
     </section>
   );
 }

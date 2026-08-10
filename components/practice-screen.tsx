@@ -148,7 +148,12 @@ export function PracticeScreen({
       }
 
       element.focus({ preventScroll: true });
-      element.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+      const bounds = element.getBoundingClientRect();
+      const isVisible = bounds.top >= 12 && bounds.bottom <= window.innerHeight - 12;
+
+      if (!isVisible) {
+        element.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      }
     });
   }, []);
   const focusActiveFeedback = useCallback(() => {
@@ -160,11 +165,13 @@ export function PracticeScreen({
 
       const isSmallScreen = window.matchMedia("(max-width: 820px)").matches;
       element.focus({ preventScroll: true });
-      element.scrollIntoView({
-        behavior: "smooth",
-        block: isSmallScreen ? "center" : "nearest",
-        inline: "nearest"
-      });
+      const bounds = element.getBoundingClientRect();
+      const margin = isSmallScreen ? 16 : 12;
+      const isVisible = bounds.top >= margin && bounds.bottom <= window.innerHeight - margin;
+
+      if (!isVisible) {
+        element.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      }
     });
   }, []);
 

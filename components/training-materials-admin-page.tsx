@@ -15,6 +15,8 @@ import {
   Upload
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { AdminDataLoading } from "./admin-data-loading";
+import { AdminConfirmDialog, AdminToast, useAdminDialogEscape } from "./admin-feedback";
 
 type MaterialType = "pdf" | "image" | "slide" | "text" | "video" | "link";
 
@@ -158,8 +160,12 @@ export function TrainingMaterialsAdminPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingArchiveMaterial, setPendingArchiveMaterial] = useState<TrainingMaterial | null>(null);
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  useAdminDialogEscape(isModalOpen, () => setIsModalOpen(false), isSaving);
 
   const pagination = data?.pagination ?? { page, pageSize: MATERIAL_PAGE_SIZE, total: 0, totalPages: 1 };
   const totalPages = Math.max(1, pagination.totalPages);
@@ -285,20 +291,21 @@ export function TrainingMaterialsAdminPage() {
     await loadMaterials();
   }
 
-  async function handleArchive(material: TrainingMaterial) {
-    const ok = window.confirm(`Tắt tài liệu ${material.title}?`);
-    if (!ok) {
-      return;
-    }
+  async function confirmArchiveMaterial() {
+    if (!pendingArchiveMaterial) return;
 
-    const response = await fetch(`/api/admin/materials/${material.id}`, { method: "DELETE" }).catch(() => null);
+    setError("");
+    setIsArchiving(true);
+    const response = await fetch(`/api/admin/materials/${pendingArchiveMaterial.id}`, { method: "DELETE" }).catch(() => null);
     const responseData = await response?.json().catch(() => null);
+    setIsArchiving(false);
 
     if (!response?.ok) {
       setError(responseData?.error ?? "Không thể tắt tài liệu.");
       return;
     }
 
+    setPendingArchiveMaterial(null);
     setSuccess("Đã tắt tài liệu đào tạo.");
     await loadMaterials();
   }
@@ -407,7 +414,8 @@ export function TrainingMaterialsAdminPage() {
       </section>
 
       {error && <p className="login-error">{error}</p>}
-      {success && <p className="success-message">{success}</p>}
+      <AdminToast message={success} onDismiss={() => setSuccess("")} />
+      {isLoading && <AdminDataLoading label="Đang tải tài liệu đào tạo..." floating={Boolean(data)} />}
 
       <section className="materials-grid">
         {(data?.materials ?? []).map((material) => {
@@ -441,7 +449,7 @@ export function TrainingMaterialsAdminPage() {
                   <Edit3 size={16} /> Sửa
                 </button>
                 {material.isActive && (
-                  <button className="danger-outline-button" onClick={() => handleArchive(material)}>
+                  <button className="danger-outline-button" onClick={() => setPendingArchiveMaterial(material)}>
                     <Archive size={16} /> Tắt
                   </button>
                 )}
@@ -504,7 +512,7 @@ export function TrainingMaterialsAdminPage() {
                         <Edit3 size={16} />
                       </button>
                       {material.isActive && (
-                        <button className="table-icon danger" onClick={() => handleArchive(material)} aria-label="Tắt tài liệu">
+                        <button className="table-icon danger" onClick={() => setPendingArchiveMaterial(material)} aria-label="Tắt tài liệu">
                           <Archive size={16} />
                         </button>
                       )}
@@ -542,10 +550,16 @@ export function TrainingMaterialsAdminPage() {
 
       {isModalOpen && (
         <div className="modal-backdrop">
-          <form className="employee-modal material-modal" onSubmit={handleSubmit}>
+          <form
+            className="employee-modal material-modal"
+            onSubmit={handleSubmit}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="material-modal-title"
+          >
             <header>
               <div>
-                <h3>{form.id ? "Sửa tài liệu đào tạo" : "Upload tài liệu đào tạo"}</h3>
+                <h3 id="material-modal-title">{form.id ? "Sửa tài liệu đào tạo" : "Upload tài liệu đào tạo"}</h3>
                 <p>File tối đa 30MB. Có thể gắn tài liệu với một hoặc nhiều bài test.</p>
               </div>
               <button className="outline-button" type="button" onClick={() => setIsModalOpen(false)}>
@@ -672,6 +686,17 @@ export function TrainingMaterialsAdminPage() {
           </form>
         </div>
       )}
+
+      <AdminConfirmDialog
+        open={Boolean(pendingArchiveMaterial)}
+        title="Tắt tài liệu đào tạo?"
+        description={`“${pendingArchiveMaterial?.title ?? "Tài liệu này"}” sẽ không còn hiển thị cho các bài học mới.`}
+        error={error}
+        confirmLabel="Tắt tài liệu"
+        isSubmitting={isArchiving}
+        onCancel={() => setPendingArchiveMaterial(null)}
+        onConfirm={() => void confirmArchiveMaterial()}
+      />
     </>
   );
 }

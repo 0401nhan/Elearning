@@ -306,6 +306,7 @@ button:disabled {
 .primary-button,
 .outline-button,
 .warm-button,
+.danger-button,
 .danger-outline-button {
   min-height: 42px;
   display: inline-flex;
@@ -4154,6 +4155,151 @@ dd {
   line-height: 1.35;
 }
 
+.danger-button {
+  color: #fff;
+  border-color: var(--red);
+  background: var(--red);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--red) 24%, transparent);
+}
+
+.admin-data-loading {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 14px 18px;
+  border: 1px solid rgba(7, 93, 240, 0.24);
+  border-radius: 8px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 7%, var(--panel));
+  box-shadow: 0 8px 22px rgba(7, 93, 240, 0.07);
+  font-weight: 700;
+}
+
+.admin-data-loading.compact {
+  min-height: 44px;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.admin-data-loading.floating {
+  position: fixed;
+  top: 84px;
+  right: 24px;
+  z-index: 45;
+  min-height: 44px;
+  width: auto;
+  max-width: min(360px, calc(100vw - 32px));
+  justify-content: flex-start;
+  margin: 0;
+  padding: 10px 14px;
+  box-shadow: var(--shadow);
+}
+
+.admin-data-loading svg {
+  animation: adminLoadingSpin 850ms linear infinite;
+}
+
+@keyframes adminLoadingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.admin-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 70;
+  width: min(390px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid #94dfb1;
+  border-radius: 9px;
+  color: #087b3e;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font-weight: 700;
+}
+
+.admin-toast button {
+  min-width: 32px;
+  min-height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+}
+
+.admin-confirm-dialog {
+  width: min(100%, 470px);
+  grid-template-columns: auto 1fr;
+  align-items: start;
+}
+
+.admin-confirm-backdrop {
+  z-index: 80;
+}
+
+.admin-confirm-dialog > footer {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.admin-confirm-error {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+}
+
+.admin-confirm-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, var(--panel));
+}
+
+.admin-row-highlight {
+  animation: adminRowHighlight 2.6s ease-out;
+}
+
+@keyframes adminRowHighlight {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--green) 16%, var(--panel));
+  }
+
+  100% {
+    background: transparent;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-data-loading.floating {
+    top: 72px;
+    right: 16px;
+  }
+
+  .admin-toast {
+    right: 16px;
+    bottom: 16px;
+  }
+}
+
 .question-cell {
   max-width: 420px;
   display: grid;
@@ -6107,6 +6253,8 @@ td:nth-child(2) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .admin-data-loading svg,
+  .admin-row-highlight,
   .quiz-live-badge.hot svg,
   .question-card-enter,
   .practice-question-item label,

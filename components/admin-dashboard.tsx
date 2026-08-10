@@ -18,7 +18,7 @@ import {
   Upload,
   Users
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { adminNavItems } from "@/lib/mock-data";
 import {
   canManageAssignmentsUser,
@@ -30,6 +30,7 @@ import {
   isAdminUser
 } from "@/lib/permissions";
 import type { Metric, ResultStatus, Screen, SessionUser, TestStatus, ThemeMode } from "@/lib/types";
+import { AdminDataLoading } from "./admin-data-loading";
 import { AdminSectionPage } from "./admin-section-page";
 import { AssignmentManagementPage } from "./assignment-management-page";
 import { PeopleAdminPage } from "./people-admin-page";
@@ -184,6 +185,17 @@ function getPageNumbers(currentPage: number, totalPages: number) {
 }
 
 const RESULTS_PAGE_SIZE = 10;
+const IMPLEMENTED_ADMIN_SECTIONS = new Set([
+  "Tổng quan",
+  "Quản lý bài test",
+  "Giao test cho nhân sự",
+  "Kết quả test",
+  "Nhân sự",
+  "Ngân hàng câu hỏi",
+  "Tài liệu đào tạo",
+  "Báo cáo",
+  "Cài đặt hệ thống"
+]);
 
 function canViewAdminNavItem(label: string, user: SessionUser) {
   if (isAdminUser(user)) return true;
@@ -213,7 +225,10 @@ export function AdminDashboard({
   onThemeChange: (theme: ThemeMode) => void;
 }) {
   const [activeAdminIndex, setActiveAdminIndex] = useState(0);
+  const [visitedAdminSections, setVisitedAdminSections] = useState<string[]>([]);
+  const adminScrollPositionsRef = useRef<Record<string, number>>({});
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(true);
   const [retakeRequests, setRetakeRequests] = useState<RetakeRequestRow[]>([]);
   const [loadError, setLoadError] = useState("");
   const [noticeError, setNoticeError] = useState("");
@@ -225,6 +240,7 @@ export function AdminDashboard({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [resultSearch, setResultSearch] = useState("");
+  const [debouncedResultSearch, setDebouncedResultSearch] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [isNoticeOpen, setIsNoticeOpen] = useState(false);
   const [isNoticeLoading, setIsNoticeLoading] = useState(false);
@@ -268,15 +284,40 @@ export function AdminDashboard({
   }, [activeAdminIndex, visibleAdminNavItems.length]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedResultSearch(resultSearch), 350);
+    return () => window.clearTimeout(timer);
+  }, [resultSearch]);
+
+  function selectAdminSection(nextIndex: number) {
+    const nextItem = visibleAdminNavItems[nextIndex];
+    if (!nextItem || nextItem.label === activeAdminItem.label) return;
+
+    adminScrollPositionsRef.current[activeAdminItem.label] = window.scrollY;
+    setVisitedAdminSections((current) => {
+      const nextSections = new Set(current);
+      nextSections.add(activeAdminItem.label);
+      nextSections.add(nextItem.label);
+      return [...nextSections];
+    });
+    setActiveAdminIndex(nextIndex);
+
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: adminScrollPositionsRef.current[nextItem.label] ?? 0, behavior: "auto" });
+    });
+  }
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadDashboard() {
       if (!canReadDashboard) {
         setDashboard(null);
         setLoadError("");
+        setIsDashboardLoading(false);
         return;
       }
 
+      setIsDashboardLoading(true);
       setLoadError("");
 
       try {
@@ -289,7 +330,7 @@ export function AdminDashboard({
           if (dateFrom) params.set("dateFrom", dateFrom);
           if (dateTo) params.set("dateTo", dateTo);
         }
-        if (resultSearch.trim()) params.set("search", resultSearch.trim());
+        if (debouncedResultSearch.trim()) params.set("search", debouncedResultSearch.trim());
         const response = await fetch(`/api/admin/dashboard?${params.toString()}`, { cache: "no-store" });
         const data = await response.json().catch(() => null);
 
@@ -310,6 +351,10 @@ export function AdminDashboard({
         if (isMounted) {
           setLoadError("Không thể kết nối hệ thống.");
         }
+      } finally {
+        if (isMounted) {
+          setIsDashboardLoading(false);
+        }
       }
     }
 
@@ -318,7 +363,7 @@ export function AdminDashboard({
     return () => {
       isMounted = false;
     };
-  }, [canReadDashboard, dateFrom, dateTo, departmentFilter, refreshKey, resultSearch, resultsPage, statusFilter, testFilter, timeRange]);
+  }, [canReadDashboard, dateFrom, dateTo, debouncedResultSearch, departmentFilter, refreshKey, resultsPage, statusFilter, testFilter, timeRange]);
 
   const loadRetakeNotices = useCallback(async () => {
     if (!canViewResults) {
@@ -359,7 +404,7 @@ export function AdminDashboard({
 
   function openRetakeRequestsPage() {
     if (resultsNavIndex >= 0) {
-      setActiveAdminIndex(resultsNavIndex);
+      selectAdminSection(resultsNavIndex);
     }
 
     setIsNoticeOpen(false);
@@ -446,7 +491,7 @@ export function AdminDashboard({
               <button
                 key={item.label}
                 className={activeAdminIndex === index ? "active" : ""}
-                onClick={() => setActiveAdminIndex(index)}
+                onClick={() => selectAdminSection(index)}
               >
                 <Icon size={20} />
                 <span>{item.label}</span>
@@ -535,8 +580,11 @@ export function AdminDashboard({
         </header>
 
         <div className="admin-content">
-          {activeAdminItem.label === "Tổng quan" ? (
+          {activeAdminItem.label === "Tổng quan" && (
             <>
+              {isDashboardLoading && (
+                <AdminDataLoading label="Đang tải dữ liệu tổng quan..." floating={Boolean(dashboard)} />
+              )}
               <section className="admin-metrics">
                 {dashboardMetrics.map((metric) => (
                   <MetricCard key={metric.label} metric={metric} />
@@ -813,74 +861,98 @@ export function AdminDashboard({
             )}
               </section>
             </>
-          ) : activeAdminItem.label === "Quản lý bài test" ? (
-            canManageAssignments ? (
-              <TestManagementPage />
-            ) : (
-              <section className="panel">
-                <div className="section-title">
-                  <h3>Không có quyền quản lý bài test</h3>
-                </div>
-                <p>Tài khoản hiện tại không có quyền quản lý bài test.</p>
-              </section>
-            )
-          ) : activeAdminItem.label === "Giao test cho nhân sự" ? (
-            canManageAssignments ? (
-              <AssignmentManagementPage />
-            ) : (
-              <section className="panel">
-                <div className="section-title">
-                  <h3>Không có quyền giao test</h3>
-                </div>
-                <p>Tài khoản hiện tại không có quyền giao test.</p>
-              </section>
-            )
-          ) : activeAdminItem.label === "Kết quả test" ? (
-            <TestResultsAdminPage
-              user={user}
-              onRetakeRequestsChanged={() => {
-                setRefreshKey((value) => value + 1);
-                void loadRetakeNotices();
-              }}
-            />
-          ) : activeAdminItem.label === "Nhân sự" ? (
-            <PeopleAdminPage readOnly={!isFullAdmin} />
-          ) : activeAdminItem.label === "Ngân hàng câu hỏi" ? (
-            canManageQuestions ? (
-              <QuestionBankPage />
-            ) : (
-              <section className="panel">
-                <div className="section-title">
-                  <h3>Không có quyền quản lý ngân hàng câu hỏi</h3>
-                </div>
-                <p>Tài khoản hiện tại không có quyền quản lý ngân hàng câu hỏi.</p>
-              </section>
-            )
-          ) : activeAdminItem.label === "Tài liệu đào tạo" ? (
-            canManageMaterials ? (
-              <TrainingMaterialsAdminPage />
-            ) : (
-              <section className="panel">
-                <div className="section-title">
-                  <h3>Không có quyền quản lý tài liệu đào tạo</h3>
-                </div>
-                <p>Tài khoản hiện tại không có quyền quản lý tài liệu đào tạo.</p>
-              </section>
-            )
-          ) : activeAdminItem.label === "Báo cáo" ? (
-            <ReportsAdminPage user={user} />
-          ) : activeAdminItem.label === "Cài đặt hệ thống" ? (
-            canManageSystem ? (
-              <SystemSettingsPage theme={theme} onThemeChange={onThemeChange} />
-            ) : (
-              <section className="panel">
-                <div className="section-title">
-                  <h3>Không có quyền cài đặt hệ thống</h3>
-                </div>
-                <p>Tài khoản hiện tại không có quyền cài đặt hệ thống.</p>
-              </section>
-            )
-          ) : (
+          )}
+
+          {(visitedAdminSections.includes("Quản lý bài test") || activeAdminItem.label === "Quản lý bài test") && (
+            <div hidden={activeAdminItem.label !== "Quản lý bài test"}>
+              {canManageAssignments ? (
+                <TestManagementPage />
+              ) : (
+                <section className="panel">
+                  <div className="section-title"><h3>Không có quyền quản lý bài test</h3></div>
+                  <p>Tài khoản hiện tại không có quyền quản lý bài test.</p>
+                </section>
+              )}
+            </div>
+          )}
+
+          {(visitedAdminSections.includes("Giao test cho nhân sự") || activeAdminItem.label === "Giao test cho nhân sự") && (
+            <div hidden={activeAdminItem.label !== "Giao test cho nhân sự"}>
+              {canManageAssignments ? (
+                <AssignmentManagementPage />
+              ) : (
+                <section className="panel">
+                  <div className="section-title"><h3>Không có quyền giao test</h3></div>
+                  <p>Tài khoản hiện tại không có quyền giao test.</p>
+                </section>
+              )}
+            </div>
+          )}
+
+          {(visitedAdminSections.includes("Kết quả test") || activeAdminItem.label === "Kết quả test") && (
+            <div hidden={activeAdminItem.label !== "Kết quả test"}>
+              <TestResultsAdminPage
+                user={user}
+                onRetakeRequestsChanged={() => {
+                  setRefreshKey((value) => value + 1);
+                  void loadRetakeNotices();
+                }}
+              />
+            </div>
+          )}
+
+          {(visitedAdminSections.includes("Nhân sự") || activeAdminItem.label === "Nhân sự") && (
+            <div hidden={activeAdminItem.label !== "Nhân sự"}>
+              <PeopleAdminPage readOnly={!isFullAdmin} />
+            </div>
+          )}
+
+          {(visitedAdminSections.includes("Ngân hàng câu hỏi") || activeAdminItem.label === "Ngân hàng câu hỏi") && (
+            <div hidden={activeAdminItem.label !== "Ngân hàng câu hỏi"}>
+              {canManageQuestions ? (
+                <QuestionBankPage />
+              ) : (
+                <section className="panel">
+                  <div className="section-title"><h3>Không có quyền quản lý ngân hàng câu hỏi</h3></div>
+                  <p>Tài khoản hiện tại không có quyền quản lý ngân hàng câu hỏi.</p>
+                </section>
+              )}
+            </div>
+          )}
+
+          {(visitedAdminSections.includes("Tài liệu đào tạo") || activeAdminItem.label === "Tài liệu đào tạo") && (
+            <div hidden={activeAdminItem.label !== "Tài liệu đào tạo"}>
+              {canManageMaterials ? (
+                <TrainingMaterialsAdminPage />
+              ) : (
+                <section className="panel">
+                  <div className="section-title"><h3>Không có quyền quản lý tài liệu đào tạo</h3></div>
+                  <p>Tài khoản hiện tại không có quyền quản lý tài liệu đào tạo.</p>
+                </section>
+              )}
+            </div>
+          )}
+
+          {(visitedAdminSections.includes("Báo cáo") || activeAdminItem.label === "Báo cáo") && (
+            <div hidden={activeAdminItem.label !== "Báo cáo"}>
+              <ReportsAdminPage user={user} />
+            </div>
+          )}
+
+          {(visitedAdminSections.includes("Cài đặt hệ thống") || activeAdminItem.label === "Cài đặt hệ thống") && (
+            <div hidden={activeAdminItem.label !== "Cài đặt hệ thống"}>
+              {canManageSystem ? (
+                <SystemSettingsPage theme={theme} onThemeChange={onThemeChange} />
+              ) : (
+                <section className="panel">
+                  <div className="section-title"><h3>Không có quyền cài đặt hệ thống</h3></div>
+                  <p>Tài khoản hiện tại không có quyền cài đặt hệ thống.</p>
+                </section>
+              )}
+            </div>
+          )}
+
+          {!IMPLEMENTED_ADMIN_SECTIONS.has(activeAdminItem.label) && (
             <AdminSectionPage title={activeAdminItem.label} icon={activeAdminItem.icon} />
           )}
         </div>

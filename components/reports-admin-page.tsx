@@ -11,6 +11,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { isAdminUser } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/types";
+import { AdminDataLoading } from "./admin-data-loading";
+import { AdminToast } from "./admin-feedback";
 
 type ReportType = "results" | "department_summary" | "test_summary" | "wrong_questions";
 
@@ -118,7 +120,7 @@ export function ReportsAdminPage({ user }: { user: SessionUser }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
   const isFullAdmin = isAdminUser(user);
 
@@ -287,7 +289,8 @@ export function ReportsAdminPage({ user }: { user: SessionUser }) {
       </section>
 
       {error && <p className="login-error">{error}</p>}
-      {success && <p className="success-message">{success}</p>}
+      <AdminToast message={success} onDismiss={() => setSuccess("")} />
+      {isLoading && <AdminDataLoading label="Đang tải dữ liệu báo cáo..." floating={Boolean(data)} />}
 
       <section className="reports-summary">
         <article className="stat-card">
@@ -339,11 +342,6 @@ export function ReportsAdminPage({ user }: { user: SessionUser }) {
               {!isLoading && data?.rows.length === 0 && (
                 <tr>
                   <td colSpan={Math.max(1, data.columns.length)}>Không có dữ liệu phù hợp với bộ lọc.</td>
-                </tr>
-              )}
-              {isLoading && (
-                <tr>
-                  <td colSpan={Math.max(1, data?.columns.length ?? 1)}>Đang tải báo cáo...</td>
                 </tr>
               )}
             </tbody>

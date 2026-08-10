@@ -15,6 +15,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { isAdminUser } from "@/lib/permissions";
 import type { ResultStatus, SessionUser, TestStatus } from "@/lib/types";
+import { AdminDataLoading } from "./admin-data-loading";
+import { AdminToast } from "./admin-feedback";
 import { Avatar, StatusPill } from "./shared";
 
 type ResultRow = {
@@ -157,7 +159,8 @@ export function TestResultsAdminPage({
   const [error, setError] = useState("");
   const [retakeError, setRetakeError] = useState("");
   const [retakeSuccess, setRetakeSuccess] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRetakeLoading, setIsRetakeLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [retakeActionId, setRetakeActionId] = useState<number | null>(null);
   const isFullAdmin = isAdminUser(user);
@@ -236,6 +239,7 @@ export function TestResultsAdminPage({
   }
 
   async function loadRetakeRequests() {
+    setIsRetakeLoading(true);
     setRetakeError("");
 
     try {
@@ -250,6 +254,8 @@ export function TestResultsAdminPage({
       setRetakeRequests(responseData?.requests ?? []);
     } catch {
       setRetakeError("Không thể kết nối hệ thống.");
+    } finally {
+      setIsRetakeLoading(false);
     }
   }
 
@@ -482,6 +488,7 @@ export function TestResultsAdminPage({
       </section>
 
       {error && <p className="login-error">{error}</p>}
+      {isLoading && <AdminDataLoading label="Đang tải kết quả test..." floating={Boolean(data)} />}
 
       <section className="panel admin-table-panel">
         <div className="section-title">
@@ -491,7 +498,8 @@ export function TestResultsAdminPage({
           </button>
         </div>
         {retakeError && <p className="login-error">{retakeError}</p>}
-        {retakeSuccess && <p className="success-message">{retakeSuccess}</p>}
+        <AdminToast message={retakeSuccess} onDismiss={() => setRetakeSuccess("")} />
+        {isRetakeLoading && <AdminDataLoading compact label="Đang tải yêu cầu thi lại..." />}
         <div className="admin-table-wrap">
           <table>
             <thead>
@@ -547,7 +555,7 @@ export function TestResultsAdminPage({
                   </td>
                 </tr>
               ))}
-              {!retakeRequests.length && (
+              {!isRetakeLoading && !retakeRequests.length && (
                 <tr>
                   <td colSpan={8}>Không có yêu cầu thi lại đang chờ duyệt.</td>
                 </tr>

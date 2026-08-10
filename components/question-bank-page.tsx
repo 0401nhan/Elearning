@@ -14,6 +14,8 @@ import {
   XCircle
 } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { AdminDataLoading } from "./admin-data-loading";
+import { AdminConfirmDialog, AdminToast, useAdminDialogEscape } from "./admin-feedback";
 import { QuestionMedia } from "./question-media";
 
 type QuestionDifficulty = "easy" | "medium" | "hard";
@@ -181,6 +183,44 @@ function getPayload(form: QuestionForm) {
   };
 }
 
+function questionFromForm(form: QuestionForm, id: number, data: QuestionBankResponse): BankQuestion {
+  const test = data.tests.find((item) => item.id === Number(form.testId));
+  const group = data.groups.find((item) => item.id === Number(form.groupId));
+
+  return {
+    id,
+    testId: Number(form.testId),
+    testTitle: test?.title ?? "--",
+    groupId: form.groupId ? Number(form.groupId) : null,
+    groupName: group?.name ?? null,
+    questionText: form.questionText.trim(),
+    imageUrl: form.questionImageUrl.trim() || null,
+    explanation: form.explanation.trim() || null,
+    difficulty: form.difficulty,
+    isActive: form.isActive,
+    updatedAt: new Date().toISOString(),
+    options: form.options.map((option) => ({ ...option, imageUrl: option.imageUrl?.trim() || null }))
+  };
+}
+
+function questionMatchesFilters(
+  question: BankQuestion,
+  filters: { search: string; testId: string; groupId: string; difficulty: string; status: string }
+) {
+  if (filters.testId && question.testId !== Number(filters.testId)) return false;
+  if (filters.groupId && question.groupId !== Number(filters.groupId)) return false;
+  if (filters.difficulty && question.difficulty !== filters.difficulty) return false;
+  if (filters.status === "active" && !question.isActive) return false;
+  if (filters.status === "inactive" && question.isActive) return false;
+
+  const search = filters.search.trim().toLocaleLowerCase("vi-VN");
+  if (!search) return true;
+
+  return [question.questionText, question.explanation, question.groupName]
+    .filter(Boolean)
+    .some((value) => String(value).toLocaleLowerCase("vi-VN").includes(search));
+}
+
 function getTemplateFilename(testTitle: string) {
   const safeTitle = testTitle
     .normalize("NFD")
@@ -204,10 +244,15 @@ export function QuestionBankPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState("");
   const [importMessage, setImportMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [pendingDisableQuestion, setPendingDisableQuestion] = useState<BankQuestion | null>(null);
+  const [isDisabling, setIsDisabling] = useState(false);
+  const [recentQuestionId, setRecentQuestionId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useAdminDialogEscape(isModalOpen, () => setIsModalOpen(false), isSaving);
 
   const pagination = data?.pagination ?? { page, pageSize: QUESTION_PAGE_SIZE, total: 0, totalPages: 1 };
   const totalPages = Math.max(1, pagination.totalPages);
@@ -224,6 +269,72 @@ export function QuestionBankPage() {
   const selectedTest = filterTestId
     ? data?.tests.find((test) => test.id === Number(filterTestId)) ?? null
     : null;
+
+  useEffect(() => {
+    if (!recentQuestionId) return;
+
+    const timer = window.setTimeout(() => setRecentQuestionId(null), 2800);
+    return () => window.clearTimeout(timer);
+  }, [recentQuestionId]);
+
+  function updateQuestionLocally(savedQuestion: BankQuestion, previousQuestion?: BankQuestion) {
+    const filters = { search, testId: filterTestId, groupId: filterGroupId, difficulty, status };
+
+    setData((current) => {
+      if (!current) return current;
+
+      const wasVisible = Boolean(previousQuestion && questionMatchesFilters(previousQuestion, filters));
+      const isVisible = questionMatchesFilters(savedQuestion, filters);
+      let questions = current.questions;
+
+      if (previousQuestion) {
+        questions = isVisible
+          ? questions.map((question) => (question.id === savedQuestion.id ? savedQuestion : question))
+          : questions.filter((question) => question.id !== savedQuestion.id);
+      } else if (isVisible && current.pagination.page === 1) {
+        questions = [savedQuestion, ...questions].slice(0, current.pagination.pageSize);
+      }
+
+      const totalDelta = Number(isVisible) - Number(wasVisible);
+      const activeDelta = Number(isVisible && savedQuestion.isActive) - Number(wasVisible && previousQuestion?.isActive);
+      const inactiveDelta = Number(isVisible && !savedQuestion.isActive) - Number(wasVisible && previousQuestion && !previousQuestion.isActive);
+      const paginationTotal = Math.max(0, current.pagination.total + totalDelta);
+
+      return {
+        ...current,
+        questions,
+        summary: {
+          total: Math.max(0, current.summary.total + totalDelta),
+          active: Math.max(0, current.summary.active + activeDelta),
+          inactive: Math.max(0, current.summary.inactive + inactiveDelta)
+        },
+        pagination: {
+          ...current.pagination,
+          total: paginationTotal,
+          totalPages: Math.max(1, Math.ceil(paginationTotal / current.pagination.pageSize))
+        },
+        tests: current.tests.map((test) => {
+          if (test.id !== savedQuestion.testId) return test;
+
+          if (!previousQuestion) {
+            return {
+              ...test,
+              questionCount: test.questionCount + 1,
+              activeQuestionCount: test.activeQuestionCount + Number(savedQuestion.isActive),
+              inactiveQuestionCount: test.inactiveQuestionCount + Number(!savedQuestion.isActive)
+            };
+          }
+
+          if (previousQuestion.isActive === savedQuestion.isActive) return test;
+          return {
+            ...test,
+            activeQuestionCount: Math.max(0, test.activeQuestionCount + (savedQuestion.isActive ? 1 : -1)),
+            inactiveQuestionCount: Math.max(0, test.inactiveQuestionCount + (savedQuestion.isActive ? -1 : 1))
+          };
+        })
+      };
+    });
+  }
 
   async function loadQuestions(targetPage = page) {
     setIsLoading(true);
@@ -362,25 +473,38 @@ export function QuestionBankPage() {
       return;
     }
 
-    setIsModalOpen(false);
-    await loadQuestions();
-  }
-
-  async function handleDisable(question: BankQuestion) {
-    const ok = window.confirm(`Tắt câu hỏi này khỏi ngân hàng câu hỏi?`);
-    if (!ok) {
-      return;
+    if (data) {
+      const questionId = Number(form.id ?? responseData?.questionId);
+      const previousQuestion = form.id ? data.questions.find((question) => question.id === form.id) : undefined;
+      const savedQuestion = questionFromForm(form, questionId, data);
+      updateQuestionLocally(savedQuestion, previousQuestion);
+      setRecentQuestionId(questionId);
     }
 
-    const response = await fetch(`/api/admin/questions/${question.id}`, { method: "DELETE" }).catch(() => null);
+    setIsModalOpen(false);
+    setImportMessage(isEdit ? "Đã cập nhật câu hỏi." : "Đã thêm câu hỏi mới.");
+  }
+
+  async function confirmDisableQuestion() {
+    if (!pendingDisableQuestion) return;
+
+    setError("");
+    setIsDisabling(true);
+    const response = await fetch(`/api/admin/questions/${pendingDisableQuestion.id}`, { method: "DELETE" }).catch(() => null);
     const responseData = await response?.json().catch(() => null);
+    setIsDisabling(false);
 
     if (!response?.ok) {
       setError(responseData?.error ?? "Không thể tắt câu hỏi.");
       return;
     }
 
-    await loadQuestions();
+    updateQuestionLocally(
+      { ...pendingDisableQuestion, isActive: false, updatedAt: new Date().toISOString() },
+      pendingDisableQuestion
+    );
+    setPendingDisableQuestion(null);
+    setImportMessage("Đã tắt câu hỏi khỏi ngân hàng câu hỏi.");
   }
 
   async function downloadCsvTemplate() {
@@ -487,7 +611,8 @@ export function QuestionBankPage() {
       </section>
 
       {error && <p className="login-error">{error}</p>}
-      {importMessage && <p className="success-message">{importMessage}</p>}
+      <AdminToast message={importMessage} onDismiss={() => setImportMessage("")} />
+      {isLoading && <AdminDataLoading label="Đang tải ngân hàng câu hỏi..." floating={Boolean(data)} />}
       <input
         ref={fileInputRef}
         type="file"
@@ -653,7 +778,7 @@ export function QuestionBankPage() {
                 const correctOption = question.options.find((option) => option.isCorrect);
 
                 return (
-                  <tr key={question.id}>
+                  <tr key={question.id} className={recentQuestionId === question.id ? "admin-row-highlight" : undefined}>
                     <td>
                       <span className="question-cell">
                         <strong>{question.questionText}</strong>
@@ -694,7 +819,7 @@ export function QuestionBankPage() {
                           <span>Sửa</span>
                         </button>
                         {question.isActive && (
-                          <button className="table-icon danger" type="button" onClick={() => handleDisable(question)} aria-label="Tắt câu hỏi">
+                          <button className="table-icon danger" type="button" onClick={() => setPendingDisableQuestion(question)} aria-label="Tắt câu hỏi">
                             <Trash2 size={16} />
                           </button>
                         )}
@@ -750,10 +875,16 @@ export function QuestionBankPage() {
 
       {isModalOpen && (
         <div className="modal-backdrop">
-          <form className="employee-modal question-modal" onSubmit={handleSubmit}>
+          <form
+            className="employee-modal question-modal"
+            onSubmit={handleSubmit}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="question-modal-title"
+          >
             <header>
               <div>
-                <h3>{form.id ? "Chỉnh sửa câu hỏi" : "Thêm câu hỏi"}</h3>
+                <h3 id="question-modal-title">{form.id ? "Chỉnh sửa câu hỏi" : "Thêm câu hỏi"}</h3>
                 <p>Câu hỏi thuộc một bài test cụ thể và có đúng 1 đáp án đúng.</p>
               </div>
               <button className="outline-button" type="button" onClick={() => setIsModalOpen(false)}>
@@ -887,6 +1018,17 @@ export function QuestionBankPage() {
           </form>
         </div>
       )}
+
+      <AdminConfirmDialog
+        open={Boolean(pendingDisableQuestion)}
+        title="Tắt câu hỏi?"
+        description="Câu hỏi sẽ không còn được đưa vào các bài làm mới. Dữ liệu kết quả cũ vẫn được giữ nguyên."
+        error={error}
+        confirmLabel="Tắt câu hỏi"
+        isSubmitting={isDisabling}
+        onCancel={() => setPendingDisableQuestion(null)}
+        onConfirm={() => void confirmDisableQuestion()}
+      />
     </>
   );
 }

@@ -11,6 +11,8 @@ import {
   Users
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { AdminDataLoading } from "./admin-data-loading";
+import { AdminToast } from "./admin-feedback";
 import { Avatar } from "./shared";
 
 type AssignmentStatus = "not_started" | "studying" | "passed" | "failed";
@@ -124,7 +126,7 @@ export function AssignmentManagementPage() {
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
 
@@ -428,7 +430,8 @@ export function AssignmentManagementPage() {
       </section>
 
       {error && <p className="login-error">{error}</p>}
-      {success && <p className="success-message">{success}</p>}
+      <AdminToast message={success} onDismiss={() => setSuccess("")} />
+      {isLoading && <AdminDataLoading label="Đang tải danh sách giao test..." floating={Boolean(data)} />}
 
       <section className="assignment-actions panel">
         <div>

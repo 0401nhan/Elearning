@@ -16,6 +16,8 @@ import {
   Target
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { AdminDataLoading } from "./admin-data-loading";
+import { AdminConfirmDialog, AdminToast, useAdminDialogEscape } from "./admin-feedback";
 import { QuestionMedia } from "./question-media";
 
 type ManagedTestStatus = "draft" | "active" | "archived";
@@ -296,11 +298,16 @@ export function TestManagementPage() {
   const [form, setForm] = useState<TestForm>(emptyForm);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [success, setSuccess] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [questions, setQuestions] = useState<TestQuestion[]>([]);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
   const [questionError, setQuestionError] = useState("");
+  const [pendingArchiveTest, setPendingArchiveTest] = useState<ManagedTest | null>(null);
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  useAdminDialogEscape(isModalOpen, () => setIsModalOpen(false), isSaving);
 
   const pagination = data?.pagination ?? { page, pageSize: TEST_PAGE_SIZE, total: 0, totalPages: 1 };
   const totalPages = Math.max(1, pagination.totalPages);
@@ -434,23 +441,26 @@ export function TestManagementPage() {
     }
 
     setIsModalOpen(false);
+    setSuccess(isEdit ? "Đã cập nhật bài test." : "Đã tạo bài test mới.");
     await loadTests();
   }
 
-  async function handleArchive(test: ManagedTest) {
-    const ok = window.confirm(`Khóa bài test ${test.title}? Nhân sự sẽ không thấy bài này trong danh sách active.`);
-    if (!ok) {
-      return;
-    }
+  async function confirmArchiveTest() {
+    if (!pendingArchiveTest) return;
 
-    const response = await fetch(`/api/admin/tests/${test.id}`, { method: "DELETE" }).catch(() => null);
+    setError("");
+    setIsArchiving(true);
+    const response = await fetch(`/api/admin/tests/${pendingArchiveTest.id}`, { method: "DELETE" }).catch(() => null);
     const responseData = await response?.json().catch(() => null);
+    setIsArchiving(false);
 
     if (!response?.ok) {
       setError(responseData?.error ?? "Không thể khóa bài test.");
       return;
     }
 
+    setPendingArchiveTest(null);
+    setSuccess("Đã khóa bài test.");
     await loadTests();
   }
 
@@ -555,6 +565,8 @@ export function TestManagementPage() {
       </section>
 
       {error && <p className="login-error">{error}</p>}
+      <AdminToast message={success} onDismiss={() => setSuccess("")} />
+      {isLoading && <AdminDataLoading label="Đang tải danh sách bài test..." floating={Boolean(data)} />}
 
       <section className="test-board test-admin-grid">
         {(data?.tests ?? []).map((test) => (
@@ -623,7 +635,7 @@ export function TestManagementPage() {
                 <Edit3 size={16} /> Chỉnh sửa
               </button>
               {test.status !== "archived" && (
-                <button className="danger-outline-button" onClick={() => handleArchive(test)}>
+                <button className="danger-outline-button" onClick={() => setPendingArchiveTest(test)}>
                   <Archive size={16} /> Khóa bài
                 </button>
               )}
@@ -682,7 +694,7 @@ export function TestManagementPage() {
                         <Edit3 size={16} />
                       </button>
                       {test.status !== "archived" && (
-                        <button className="table-icon danger" onClick={() => handleArchive(test)} aria-label="Khóa bài test">
+                        <button className="table-icon danger" onClick={() => setPendingArchiveTest(test)} aria-label="Khóa bài test">
                           <Archive size={16} />
                         </button>
                       )}
@@ -734,10 +746,16 @@ export function TestManagementPage() {
 
       {isModalOpen && (
         <div className="modal-backdrop">
-          <form className="employee-modal test-modal" onSubmit={handleSubmit}>
+          <form
+            className="employee-modal test-modal"
+            onSubmit={handleSubmit}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="test-modal-title"
+          >
             <header>
               <div>
-                <h3>{form.id ? "Chỉnh sửa bài test" : "Tạo bài test"}</h3>
+                <h3 id="test-modal-title">{form.id ? "Chỉnh sửa bài test" : "Tạo bài test"}</h3>
                 <p>Cấu hình thông tin, tài liệu học và quy tắc làm bài theo tài liệu vận hành.</p>
               </div>
               <button className="outline-button" type="button" onClick={() => setIsModalOpen(false)}>
@@ -1066,6 +1084,17 @@ export function TestManagementPage() {
           </form>
         </div>
       )}
+
+      <AdminConfirmDialog
+        open={Boolean(pendingArchiveTest)}
+        title="Khóa bài test?"
+        description={`Nhân sự sẽ không còn thấy “${pendingArchiveTest?.title ?? "bài test này"}” trong danh sách đang áp dụng.`}
+        error={error}
+        confirmLabel="Khóa bài test"
+        isSubmitting={isArchiving}
+        onCancel={() => setPendingArchiveTest(null)}
+        onConfirm={() => void confirmArchiveTest()}
+      />
     </>
   );
 }
