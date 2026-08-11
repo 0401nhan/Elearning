@@ -1215,6 +1215,100 @@ function buildGenericProcedureBundle(config) {
   };
 }
 
+function buildAccountingBundle() {
+  const bundleRoot = inputDirectoryByCanonicalTitle("bai kiem tra phong ke toan");
+  if (!bundleRoot) {
+    throw new Error("Missing input folder for BAI KIEM TRA PHONG KE TOAN.");
+  }
+
+  const files = walkFiles(bundleRoot);
+  const docxFiles = files.filter((filePath) => path.extname(filePath).toLowerCase() === ".docx");
+  const pdfFiles = files.filter((filePath) => path.extname(filePath).toLowerCase() === ".pdf");
+  const questionSources = [
+    {
+      filenameFragment: "ke toan chi phi",
+      groupName: "Quy trình kế toán chi phí"
+    },
+    {
+      filenameFragment: "ke toan cong no phai thu",
+      groupName: "Quy trình kế toán công nợ phải thu"
+    },
+    {
+      filenameFragment: "ke toan thue",
+      groupName: "Quy trình kế toán thuế"
+    }
+  ];
+  const materialSources = [
+    {
+      filenameFragment: "qt kt cn 01",
+      title: "Kế toán - Quy trình hồ sơ thanh toán và công nợ phải thu"
+    },
+    {
+      filenameFragment: "qt kt cp 01",
+      title: "Kế toán - Quy trình chi phí nhân viên"
+    },
+    {
+      filenameFragment: "qt kt t 01",
+      title: "Kế toán - Quy trình kế toán thuế"
+    }
+  ];
+
+  const questionFiles = [];
+  const questions = [];
+  for (const source of questionSources) {
+    const questionFile = docxFiles.find((filePath) =>
+      canonicalTitle(path.basename(filePath)).includes(source.filenameFragment)
+    );
+    if (!questionFile) {
+      throw new Error(`Missing accounting question DOCX for ${source.groupName}.`);
+    }
+
+    const parsedQuestions = parseGenericQuestions(questionFile, source.groupName);
+    if (parsedQuestions.length !== 100) {
+      throw new Error(`${path.basename(questionFile)}: expected 100 questions, found ${parsedQuestions.length}.`);
+    }
+
+    questionFiles.push(questionFile);
+    for (const question of parsedQuestions) {
+      questions.push({
+        ...question,
+        number: questions.length + 1,
+        groupName: source.groupName
+      });
+    }
+  }
+
+  const materialItems = materialSources.map((source, index) => {
+    const filePath = pdfFiles.find((candidate) =>
+      canonicalTitle(path.basename(candidate)).includes(source.filenameFragment)
+    );
+    if (!filePath) {
+      throw new Error(`Missing accounting PDF for ${source.title}.`);
+    }
+
+    return {
+      filePath,
+      title: source.title,
+      uploadCode: `KE_TOAN_QUY_TRINH-${index + 1}`,
+      materialType: "pdf"
+    };
+  });
+
+  return {
+    family: "KE_TOAN",
+    code: "KE_TOAN_QUY_TRINH",
+    title: "BÀI KIỂM TRA PHÒNG KẾ TOÁN",
+    description: `Ngân hàng 300 câu hỏi được nhập từ ${path.relative(root, bundleRoot)}.`,
+    departmentKey: "KE_TOAN",
+    configuredQuestionCount: 30,
+    durationMinutes: 30,
+    requiredCorrectAnswers: 24,
+    materialItems,
+    questionFiles,
+    questions
+  };
+}
+
 function buildCombinedKtvpBundle() {
   const level1Root = inputDirectoryByCanonicalTitle("ktvp level 1");
   if (!level1Root) {
@@ -1356,7 +1450,8 @@ async function getDepartmentIds(connection) {
       null,
     QHSE: byCode.get("QHSE") ?? byCode.get("HSE") ?? byName.get("qhse") ?? byName.get("hse") ?? null,
     KTVP: byCode.get("KTVP") ?? byName.get("ky thuat van phong") ?? null,
-    DIEUPHOI: byCode.get("DIEUPHOI") ?? byName.get("dieu phoi") ?? null
+    DIEUPHOI: byCode.get("DIEUPHOI") ?? byName.get("dieu phoi") ?? null,
+    KE_TOAN: byCode.get("KE_TOAN") ?? byName.get("ke toan") ?? null
   };
 }
 
@@ -1419,10 +1514,13 @@ async function ensureTest(connection, bundle, departmentId, creatorId) {
     [bundle.code]
   );
   const existingRequiredCorrectAnswers = Number(existingTests[0]?.required_correct_answers);
+  const bundleRequiredCorrectAnswers = Number(bundle.requiredCorrectAnswers);
   const configuredRequiredCorrectAnswers =
-    Number.isInteger(existingRequiredCorrectAnswers) && existingRequiredCorrectAnswers > 0
-      ? Math.min(existingRequiredCorrectAnswers, questionCount)
-      : null;
+    Number.isInteger(bundleRequiredCorrectAnswers) && bundleRequiredCorrectAnswers > 0
+      ? Math.min(bundleRequiredCorrectAnswers, questionCount)
+      : Number.isInteger(existingRequiredCorrectAnswers) && existingRequiredCorrectAnswers > 0
+        ? Math.min(existingRequiredCorrectAnswers, questionCount)
+        : null;
   const requiredCorrectAnswers = configuredRequiredCorrectAnswers ?? (questionCount <= 1 ? questionCount : questionCount - 1);
   const passScore = questionCount > 0 ? Number(((requiredCorrectAnswers / questionCount) * 100).toFixed(2)) : 80;
 
@@ -1812,11 +1910,12 @@ async function main() {
       ? buildGenericProcedureBundles(only === "all" ? "procedures" : only)
       : []),
       ...(only === "ktvp-combined" ? [buildCombinedKtvpBundle()] : []),
-      ...(only === "qhse-department" ? [buildQhseDepartmentBundle()] : [])
+      ...(only === "qhse-department" ? [buildQhseDepartmentBundle()] : []),
+      ...(only === "all" || only === "ketoan" ? [buildAccountingBundle()] : [])
     ];
 
-    if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp", "ktvp-combined", "qhse-department"].includes(only)) {
-      throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, ktvp, ktvp-combined, or qhse-department.");
+    if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp", "ktvp-combined", "qhse-department", "ketoan"].includes(only)) {
+      throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, ktvp, ktvp-combined, qhse-department, or ketoan.");
     }
 
     if (!bundles.length) {
