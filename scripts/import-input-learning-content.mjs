@@ -1015,12 +1015,15 @@ function buildCombinedHcnsBundle() {
 
   return {
     family: "HCNS",
-    code: "HCNS_ALL",
-    title: "BÀI KIỂM TRA NỘI QUY - QUY ĐỊNH CÔNG TY ELECTRIC BIRD",
-    description: `Imported from ${path.relative(root, questionDir)} and ${path.relative(root, materialDir)}.`,
+    code: "HCNS",
+    title: "BÀI KIỂM TRA HCNS",
+    description: `Ngân hàng ${questions.length} câu hỏi được gộp từ ${questionFiles.length} file Word trong ${path.relative(root, questionDir)}.`,
     departmentKey: "HCNS",
     configuredQuestionCount: 30,
     durationMinutes: 30,
+    requiredCorrectAnswers: 24,
+    materialItems: [],
+    preserveExistingMaterials: true,
     materialFiles,
     questionFiles,
     questions
