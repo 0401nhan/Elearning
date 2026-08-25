@@ -983,49 +983,104 @@ function buildHcnsBundles() {
 }
 
 function buildCombinedHcnsBundle() {
-  const hcnsRoot = path.join(inputRoot, "HCNS");
-  const questionDir = childDirectory(hcnsRoot, "Cau hoi") ?? hcnsRoot;
-  const materialDir = childDirectory(hcnsRoot, "Tai lieu") ?? hcnsRoot;
-  const questionFiles = walkFiles(questionDir)
-    .filter((filePath) => path.extname(filePath).toLowerCase() === ".docx")
-    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
-  const materialFiles = walkFiles(materialDir)
-    .filter((filePath) => path.extname(filePath).toLowerCase() === ".pdf")
-    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
-
-  if (!questionFiles.length) {
-    throw new Error("Missing HCNS question DOCX files.");
+  const hcnsRoot = inputDirectoryByCanonicalTitle("bai kiem tra hcns");
+  if (!hcnsRoot) {
+    throw new Error("Missing input folder for BÀI KIỂM TRA HCNS.");
   }
 
-  if (!materialFiles.length) {
-    throw new Error("Missing HCNS material PDF files.");
+  const materialRoot = childDirectory(childDirectory(hcnsRoot, "Tai lieu") ?? hcnsRoot, "Word");
+  if (!materialRoot) {
+    throw new Error(`Missing HCNS Word material folder in ${path.relative(root, hcnsRoot)}.`);
+  }
+
+  const questionFiles = readdirSync(hcnsRoot)
+    .map((name) => path.join(hcnsRoot, name))
+    .filter((filePath) => statSync(filePath).isFile() && path.extname(filePath).toLowerCase() === ".docx")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  const materialFiles = walkFiles(materialRoot)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".docx")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+
+  if (questionFiles.length !== 24) {
+    throw new Error(`${path.relative(root, hcnsRoot)}: expected 24 question DOCX files, found ${questionFiles.length}.`);
+  }
+
+  if (materialFiles.length !== 24) {
+    throw new Error(`${path.relative(root, materialRoot)}: expected 24 material DOCX files, found ${materialFiles.length}.`);
   }
 
   const questions = [];
   for (const questionFile of questionFiles) {
-    const sourceTitle = titleFromQuestionFile(questionFile);
-    const parsedQuestions = parseHcnsQuestions(questionFile);
+    const documentCode = hcnsComprehensiveDocumentCode(questionFile);
+    const expectedQuestions = hcnsQuestionCountFromFileName(questionFile);
+    const parsedQuestions = parseGenericQuestions(questionFile, documentCode);
+    if (parsedQuestions.length !== expectedQuestions) {
+      throw new Error(
+        `${path.basename(questionFile)}: expected ${expectedQuestions} questions, found ${parsedQuestions.length}.`
+      );
+    }
     for (const question of parsedQuestions) {
       questions.push({
         ...question,
-        groupName: cleanText(`${sourceTitle} - ${question.groupName}`)
+        number: questions.length + 1,
+        groupName: documentCode
       });
     }
+  }
+
+  const questionCodes = new Set(questionFiles.map(hcnsComprehensiveDocumentCode));
+  const materialCodes = new Set(materialFiles.map(hcnsComprehensiveDocumentCode));
+  const missingMaterials = [...questionCodes].filter((code) => !materialCodes.has(code));
+  const unexpectedMaterials = [...materialCodes].filter((code) => !questionCodes.has(code));
+  if (missingMaterials.length || unexpectedMaterials.length) {
+    throw new Error(
+      `HCNS question/material mismatch. Missing materials: ${missingMaterials.join(", ") || "none"}; unexpected materials: ${unexpectedMaterials.join(", ") || "none"}.`
+    );
   }
 
   return {
     family: "HCNS",
     code: "HCNS",
     title: "BÀI KIỂM TRA HCNS",
-    description: `Ngân hàng ${questions.length} câu hỏi được gộp từ ${questionFiles.length} file Word trong ${path.relative(root, questionDir)}.`,
+    description: `Ngân hàng ${questions.length} câu hỏi được gộp từ ${questionFiles.length} file Word và ${materialFiles.length} tài liệu trong ${path.relative(root, hcnsRoot)}.`,
     departmentKey: "HCNS",
     configuredQuestionCount: 30,
     durationMinutes: 30,
     requiredCorrectAnswers: 24,
     materialFiles,
+    materialItems: materialFiles.map((filePath) => ({
+      filePath,
+      title: hcnsComprehensiveMaterialTitle(filePath),
+      uploadCode: `HCNS-${hcnsComprehensiveDocumentCode(filePath)}`,
+      materialType: "slide"
+    })),
     questionFiles,
     questions
   };
+}
+
+function hcnsComprehensiveDocumentCode(filePath) {
+  const match = /^((?:QC|QD|QT)-HCNS(?:-[A-Z]+)?-\d+)/i.exec(withoutExtension(filePath));
+  if (!match?.[1]) {
+    throw new Error(`Cannot determine HCNS document code from ${path.basename(filePath)}.`);
+  }
+  return match[1].toUpperCase();
+}
+
+function hcnsQuestionCountFromFileName(filePath) {
+  const match = /_(\d+)_cau(?:_|$)/i.exec(ascii(withoutExtension(filePath)));
+  const count = Number(match?.[1]);
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error(`Cannot determine expected question count from ${path.basename(filePath)}.`);
+  }
+  return count;
+}
+
+function hcnsComprehensiveMaterialTitle(filePath) {
+  const baseName = withoutExtension(filePath).replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  const code = hcnsComprehensiveDocumentCode(filePath);
+  const title = baseName.slice(code.length).trim();
+  return title ? `${code} - ${title}` : code;
 }
 
 function hcnsAudienceGroupName(filePath) {
