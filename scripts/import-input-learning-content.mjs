@@ -1016,12 +1016,105 @@ function buildCombinedHcnsBundle() {
   return {
     family: "HCNS",
     code: "HCNS_ALL",
-    title: "HCNS - T\u1ed5ng h\u1ee3p",
+    title: "BÀI KIỂM TRA NỘI QUY - QUY ĐỊNH CÔNG TY ELECTRIC BIRD",
     description: `Imported from ${path.relative(root, questionDir)} and ${path.relative(root, materialDir)}.`,
     departmentKey: "HCNS",
+    configuredQuestionCount: 30,
+    durationMinutes: 30,
     materialFiles,
     questionFiles,
     questions
+  };
+}
+
+function hcnsAudienceGroupName(filePath) {
+  const baseName = withoutExtension(filePath);
+  const documentCode = /^((?:NQ|QD)-HCNS-\d+)/i.exec(baseName)?.[1]?.toUpperCase() ?? baseName;
+  const normalized = canonicalTitle(baseName);
+  const audience = normalized.includes("khoi van phong")
+    ? "Khối văn phòng"
+    : normalized.includes("khoi hien truong")
+      ? "Khối hiện trường"
+      : "Chung";
+  return `${documentCode} - ${audience}`;
+}
+
+function buildHcnsAudienceBundle({ folderTitle, code, title, departmentKey }) {
+  const bundleRoot = inputDirectoryByCanonicalTitle(folderTitle);
+  if (!bundleRoot) {
+    throw new Error(`Missing input folder for ${folderTitle}.`);
+  }
+
+  const questionFiles = walkFiles(bundleRoot)
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".docx")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  if (!questionFiles.length) {
+    throw new Error(`Missing question DOCX files in ${path.relative(root, bundleRoot)}.`);
+  }
+
+  const questions = [];
+  for (const questionFile of questionFiles) {
+    const groupName = hcnsAudienceGroupName(questionFile);
+    const parsedQuestions = parseGenericQuestions(questionFile, groupName);
+    if (parsedQuestions.length !== 50) {
+      throw new Error(`${path.basename(questionFile)}: expected 50 questions, found ${parsedQuestions.length}.`);
+    }
+
+    for (const question of parsedQuestions) {
+      questions.push({
+        ...question,
+        number: questions.length + 1,
+        groupName
+      });
+    }
+  }
+
+  const sourceQuestionCount = questions.length;
+  const deduplicatedQuestions = deduplicateSemanticQuestions(questions).map((question, index) => ({
+    ...question,
+    number: index + 1
+  }));
+
+  return {
+    family: "HCNS",
+    code,
+    title,
+    description: `Ngân hàng ${deduplicatedQuestions.length} câu hỏi được gộp từ ${questionFiles.length} file Word trong ${path.relative(root, bundleRoot)}; đã loại ${sourceQuestionCount - deduplicatedQuestions.length} câu trùng hoàn toàn.`,
+    departmentKey,
+    configuredQuestionCount: 30,
+    durationMinutes: 30,
+    requiredCorrectAnswers: 24,
+    preserveExistingMaterials: true,
+    questionFiles,
+    sourceQuestionCount,
+    removedDuplicateQuestions: sourceQuestionCount - deduplicatedQuestions.length,
+    questions: deduplicatedQuestions
+  };
+}
+
+function buildHcnsKtvpBundle() {
+  return buildHcnsAudienceBundle({
+    folderTitle: "hcns ktvp",
+    code: "HCNS_KTVP",
+    title: "BÀI KIỂM TRA HCNS - KHỐI VĂN PHÒNG",
+    departmentKey: "KTVP"
+  });
+}
+
+function buildHcnsKthtBundle() {
+  return buildHcnsAudienceBundle({
+    folderTitle: "hcns ktht",
+    code: "HCNS_KTHT",
+    title: "BÀI KIỂM TRA HCNS - KHỐI HIỆN TRƯỜNG",
+    departmentKey: "KTHT"
+  });
+}
+
+function preserveLinkedMaterials(bundle) {
+  return {
+    ...bundle,
+    materialItems: [],
+    preserveExistingMaterials: true
   };
 }
 
@@ -1449,7 +1542,18 @@ async function getDepartmentIds(connection) {
       byName.get("hanh chinh nhan su") ??
       null,
     QHSE: byCode.get("QHSE") ?? byCode.get("HSE") ?? byName.get("qhse") ?? byName.get("hse") ?? null,
-    KTVP: byCode.get("KTVP") ?? byName.get("ky thuat van phong") ?? null,
+    KTVP:
+      byCode.get("KTVP") ??
+      byCode.get("KY_THUAT_VAN_PHONG") ??
+      byCode.get("KY_THUAT_VAN_PHONG_2") ??
+      byName.get("ky thuat van phong") ??
+      null,
+    KTHT:
+      byCode.get("KTHT") ??
+      byCode.get("KY_THUAT_HIEN_TRUONG") ??
+      byCode.get("KY_THUAT_HIEN_TRUONG_2") ??
+      byName.get("ky thuat hien truong") ??
+      null,
     DIEUPHOI: byCode.get("DIEUPHOI") ?? byName.get("dieu phoi") ?? null,
     KE_TOAN: byCode.get("KE_TOAN") ?? byName.get("ke toan") ?? null
   };
@@ -1711,6 +1815,111 @@ function questionFilesForBundle(bundle) {
   return bundle.questionFiles ?? (bundle.questionFile ? [bundle.questionFile] : []);
 }
 
+function questionContentFingerprint(questions) {
+  const normalizedQuestions = questions.map((question) => ({
+    groupName: question.groupName ?? null,
+    questionText: question.questionText,
+    imageUrl: question.imageUrl ?? null,
+    explanation: question.explanation ?? null,
+    difficulty: question.difficulty,
+    options: question.options.map((option) => ({
+      label: option.label,
+      text: option.text,
+      isCorrect: Boolean(option.isCorrect)
+    }))
+  }));
+  return createHash("sha256").update(JSON.stringify(normalizedQuestions)).digest("hex");
+}
+
+function duplicateQuestionTextCount(questions) {
+  const counts = new Map();
+  for (const question of questions) {
+    const key = canonicalTitle(question.questionText);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.values()].reduce((total, count) => total + Math.max(0, count - 1), 0);
+}
+
+function semanticQuestionKey(question) {
+  const answerSignature = question.options
+    .map((option) => ({
+      text: canonicalTitle(option.text),
+      isCorrect: Boolean(option.isCorrect)
+    }))
+    .sort((left, right) => left.text.localeCompare(right.text));
+  return JSON.stringify({
+    questionText: canonicalTitle(question.questionText),
+    answers: answerSignature
+  });
+}
+
+function deduplicateSemanticQuestions(questions) {
+  const deduplicated = [];
+  const indexByKey = new Map();
+  for (const question of questions) {
+    const key = semanticQuestionKey(question);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, deduplicated.length);
+      deduplicated.push(question);
+      continue;
+    }
+
+    const existingQuestion = deduplicated[existingIndex];
+    const existingIsCommon = canonicalTitle(existingQuestion.groupName).endsWith("chung");
+    const newIsAudienceSpecific = !canonicalTitle(question.groupName).endsWith("chung");
+    if (existingIsCommon && newIsAudienceSpecific) {
+      deduplicated[existingIndex] = question;
+    }
+  }
+  return deduplicated;
+}
+
+function duplicateQuestionDiagnostics(questions) {
+  const byText = new Map();
+  for (const question of questions) {
+    const textKey = canonicalTitle(question.questionText);
+    const answerSignature = semanticQuestionKey(question);
+    const entries = byText.get(textKey) ?? [];
+    entries.push({
+      questionText: question.questionText,
+      groupName: question.groupName,
+      correctLabel: question.options.find((option) => option.isCorrect)?.label ?? null,
+      correctText: question.options.find((option) => option.isCorrect)?.text ?? null,
+      answerSignature
+    });
+    byText.set(textKey, entries);
+  }
+
+  let exactDuplicateOccurrences = 0;
+  const conflictingGroups = [];
+  for (const entries of byText.values()) {
+    if (entries.length < 2) continue;
+    const signatureCounts = new Map();
+    for (const entry of entries) {
+      signatureCounts.set(entry.answerSignature, (signatureCounts.get(entry.answerSignature) ?? 0) + 1);
+    }
+    exactDuplicateOccurrences += [...signatureCounts.values()].reduce(
+      (total, count) => total + Math.max(0, count - 1),
+      0
+    );
+    if (signatureCounts.size > 1) {
+      conflictingGroups.push({
+        questionText: entries[0].questionText,
+        sources: entries.map(
+          (entry) => `${entry.groupName} (đáp án ${entry.correctLabel}: ${entry.correctText})`
+        )
+      });
+    }
+  }
+
+  return {
+    exactDuplicateOccurrences,
+    conflictingDuplicateTextGroups: conflictingGroups.length,
+    conflictSamples: conflictingGroups.slice(0, 5)
+  };
+}
+
 async function archiveOldInputTests(connection, keepCodes) {
   if (!keepCodes.length) {
     return 0;
@@ -1791,15 +2000,23 @@ async function importBundles(bundles, dryRun, options = {}) {
       items: await Promise.all(
         bundles.map(async (bundle) => {
           const materialItems = materialItemsForBundle(bundle);
+          const duplicateDiagnostics = duplicateQuestionDiagnostics(bundle.questions);
           return {
             code: bundle.code,
             title: bundle.title,
             materialFiles: materialItems.map((item) => path.relative(root, item.filePath)),
             materialTypes: materialItems.map((item) => item.materialType),
             questionFiles: questionFilesForBundle(bundle).map((filePath) => path.relative(root, filePath)),
+            configuredQuestions: bundle.configuredQuestionCount ?? bundle.questions.length,
+            requiredCorrectAnswers: bundle.requiredCorrectAnswers ?? null,
+            sourceQuestions: bundle.sourceQuestionCount ?? bundle.questions.length,
+            removedDuplicateQuestions: bundle.removedDuplicateQuestions ?? 0,
             questions: bundle.questions.length,
             questionImages: bundle.questions.filter((question) => question.imageUrl).length,
             groups: new Set(bundle.questions.map((question) => question.groupName)).size,
+            duplicateQuestionTexts: duplicateQuestionTextCount(bundle.questions),
+            ...duplicateDiagnostics,
+            contentFingerprint: questionContentFingerprint(bundle.questions),
             contentUrls: await Promise.all(
               materialItems.map((item) => copyMaterialFile(item.filePath, item.uploadCode, true))
             )
@@ -1838,10 +2055,12 @@ async function importBundles(bundles, dryRun, options = {}) {
         }
 
         const testId = await ensureTest(connection, bundle, departmentId, creatorId);
-        if (materialIds.length === 1) {
-          await linkMaterial(connection, testId, materialIds[0]);
-        } else {
-          await linkMaterials(connection, testId, materialIds);
+        if (!(bundle.preserveExistingMaterials && materialIds.length === 0)) {
+          if (materialIds.length === 1) {
+            await linkMaterial(connection, testId, materialIds[0]);
+          } else {
+            await linkMaterials(connection, testId, materialIds);
+          }
         }
         await replaceTestQuestions(connection, testId, creatorId, bundle.questions);
         await connection.commit();
@@ -1910,12 +2129,21 @@ async function main() {
       ? buildGenericProcedureBundles(only === "all" ? "procedures" : only)
       : []),
       ...(only === "ktvp-combined" ? [buildCombinedKtvpBundle()] : []),
+      ...(only === "hcns-suite"
+        ? [
+            preserveLinkedMaterials(buildCombinedHcnsBundle()),
+            buildHcnsKtvpBundle(),
+            buildHcnsKthtBundle()
+          ]
+        : []),
+      ...(only === "hcns-ktvp" ? [buildHcnsKtvpBundle()] : []),
+      ...(only === "hcns-ktht" ? [buildHcnsKthtBundle()] : []),
       ...(only === "qhse-department" ? [buildQhseDepartmentBundle()] : []),
       ...(only === "all" || only === "ketoan" ? [buildAccountingBundle()] : [])
     ];
 
-    if (!["all", "hcns", "qhse", "procedures", "dieuphoi", "ktvp", "ktvp-combined", "qhse-department", "ketoan"].includes(only)) {
-      throw new Error("--only must be all, hcns, qhse, procedures, dieuphoi, ktvp, ktvp-combined, qhse-department, or ketoan.");
+    if (!["all", "hcns", "hcns-suite", "hcns-ktvp", "hcns-ktht", "qhse", "procedures", "dieuphoi", "ktvp", "ktvp-combined", "qhse-department", "ketoan"].includes(only)) {
+      throw new Error("--only must be all, hcns, hcns-suite, hcns-ktvp, hcns-ktht, qhse, procedures, dieuphoi, ktvp, ktvp-combined, qhse-department, or ketoan.");
     }
 
     if (!bundles.length) {
