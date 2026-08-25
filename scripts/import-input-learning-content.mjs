@@ -1022,8 +1022,6 @@ function buildCombinedHcnsBundle() {
     configuredQuestionCount: 30,
     durationMinutes: 30,
     requiredCorrectAnswers: 24,
-    materialItems: [],
-    preserveExistingMaterials: true,
     materialFiles,
     questionFiles,
     questions
@@ -1042,17 +1040,30 @@ function hcnsAudienceGroupName(filePath) {
   return `${documentCode} - ${audience}`;
 }
 
+function hcnsAudienceMaterialTitle(filePath) {
+  const baseName = withoutExtension(filePath).replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  const match = /^((?:NQ|QD)-HCNS-\d+)\s+(.+)$/i.exec(baseName);
+  return match ? `HCNS - ${match[1].toUpperCase()} - ${match[2]}` : `HCNS - ${baseName}`;
+}
+
 function buildHcnsAudienceBundle({ folderTitle, code, title, departmentKey }) {
   const bundleRoot = inputDirectoryByCanonicalTitle(folderTitle);
   if (!bundleRoot) {
     throw new Error(`Missing input folder for ${folderTitle}.`);
   }
 
-  const questionFiles = walkFiles(bundleRoot)
+  const bundleFiles = walkFiles(bundleRoot);
+  const questionFiles = bundleFiles
     .filter((filePath) => path.extname(filePath).toLowerCase() === ".docx")
+    .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
+  const materialFiles = bundleFiles
+    .filter((filePath) => path.extname(filePath).toLowerCase() === ".pdf")
     .sort((left, right) => path.basename(left).localeCompare(path.basename(right), "vi"));
   if (!questionFiles.length) {
     throw new Error(`Missing question DOCX files in ${path.relative(root, bundleRoot)}.`);
+  }
+  if (materialFiles.length !== 5) {
+    throw new Error(`${path.relative(root, bundleRoot)}: expected 5 material PDF files, found ${materialFiles.length}.`);
   }
 
   const questions = [];
@@ -1082,12 +1093,18 @@ function buildHcnsAudienceBundle({ folderTitle, code, title, departmentKey }) {
     family: "HCNS",
     code,
     title,
-    description: `Ngân hàng ${deduplicatedQuestions.length} câu hỏi được gộp từ ${questionFiles.length} file Word trong ${path.relative(root, bundleRoot)}; đã loại ${sourceQuestionCount - deduplicatedQuestions.length} câu trùng hoàn toàn.`,
+    description: `Ngân hàng ${deduplicatedQuestions.length} câu hỏi được gộp từ ${questionFiles.length} file Word trong ${path.relative(root, bundleRoot)}; đã loại ${sourceQuestionCount - deduplicatedQuestions.length} câu trùng hoàn toàn và liên kết ${materialFiles.length} tài liệu PDF.`,
     departmentKey,
     configuredQuestionCount: 30,
     durationMinutes: 30,
     requiredCorrectAnswers: 24,
-    preserveExistingMaterials: true,
+    materialFiles,
+    materialItems: materialFiles.map((filePath, index) => ({
+      filePath,
+      title: hcnsAudienceMaterialTitle(filePath),
+      uploadCode: `${code}-${index + 1}`,
+      materialType: "pdf"
+    })),
     questionFiles,
     sourceQuestionCount,
     removedDuplicateQuestions: sourceQuestionCount - deduplicatedQuestions.length,
@@ -1111,14 +1128,6 @@ function buildHcnsKthtBundle() {
     title: "BÀI KIỂM TRA HCNS - KHỐI HIỆN TRƯỜNG",
     departmentKey: "KTHT"
   });
-}
-
-function preserveLinkedMaterials(bundle) {
-  return {
-    ...bundle,
-    materialItems: [],
-    preserveExistingMaterials: true
-  };
 }
 
 function buildQhseBundles() {
@@ -2000,6 +2009,7 @@ async function importBundles(bundles, dryRun, options = {}) {
   if (dryRun) {
     return {
       dryRun,
+      materialsOnly: Boolean(options.materialsOnly),
       items: await Promise.all(
         bundles.map(async (bundle) => {
           const materialItems = materialItemsForBundle(bundle);
@@ -2008,6 +2018,7 @@ async function importBundles(bundles, dryRun, options = {}) {
             code: bundle.code,
             title: bundle.title,
             materialFiles: materialItems.map((item) => path.relative(root, item.filePath)),
+            materialTitles: materialItems.map((item) => item.title),
             materialTypes: materialItems.map((item) => item.materialType),
             questionFiles: questionFilesForBundle(bundle).map((filePath) => path.relative(root, filePath)),
             configuredQuestions: bundle.configuredQuestionCount ?? bundle.questions.length,
@@ -2057,7 +2068,18 @@ async function importBundles(bundles, dryRun, options = {}) {
           materialIds.push(await ensureMaterial(connection, item, departmentId, creatorId));
         }
 
-        const testId = await ensureTest(connection, bundle, departmentId, creatorId);
+        let testId;
+        if (options.materialsOnly) {
+          const [testRows] = await connection.query("SELECT id FROM tests WHERE code = ? LIMIT 1 FOR UPDATE", [
+            bundle.code
+          ]);
+          if (!testRows[0]?.id) {
+            throw new Error(`Cannot link materials because test ${bundle.code} does not exist.`);
+          }
+          testId = Number(testRows[0].id);
+        } else {
+          testId = await ensureTest(connection, bundle, departmentId, creatorId);
+        }
         if (!(bundle.preserveExistingMaterials && materialIds.length === 0)) {
           if (materialIds.length === 1) {
             await linkMaterial(connection, testId, materialIds[0]);
@@ -2065,7 +2087,9 @@ async function importBundles(bundles, dryRun, options = {}) {
             await linkMaterials(connection, testId, materialIds);
           }
         }
-        await replaceTestQuestions(connection, testId, creatorId, bundle.questions);
+        if (!options.materialsOnly) {
+          await replaceTestQuestions(connection, testId, creatorId, bundle.questions);
+        }
         await connection.commit();
       } catch (error) {
         await connection.rollback();
@@ -2090,7 +2114,13 @@ async function importBundles(bundles, dryRun, options = {}) {
         )
       : 0;
 
-    return { dryRun, archivedTests, archivedSupersededTests, items: summaries };
+    return {
+      dryRun,
+      materialsOnly: Boolean(options.materialsOnly),
+      archivedTests,
+      archivedSupersededTests,
+      items: summaries
+    };
   } finally {
     await connection.end();
   }
@@ -2103,6 +2133,7 @@ function parseArgs(argv) {
     dryRun: args.has("--dry-run"),
     only: onlyArg ? onlyArg.slice("--only=".length).toLowerCase() : "all",
     combined: args.has("--combined"),
+    materialsOnly: args.has("--materials-only"),
     archiveOldInputTests: args.has("--archive-old-input-tests"),
     archiveSupersededTests: args.has("--archive-superseded")
   };
@@ -2113,6 +2144,7 @@ async function main() {
     dryRun,
     only,
     combined,
+    materialsOnly,
     archiveOldInputTests: shouldArchiveOldInputTests,
     archiveSupersededTests: shouldArchiveSupersededTests
   } = parseArgs(process.argv.slice(2));
@@ -2134,7 +2166,7 @@ async function main() {
       ...(only === "ktvp-combined" ? [buildCombinedKtvpBundle()] : []),
       ...(only === "hcns-suite"
         ? [
-            preserveLinkedMaterials(buildCombinedHcnsBundle()),
+            buildCombinedHcnsBundle(),
             buildHcnsKtvpBundle(),
             buildHcnsKthtBundle()
           ]
@@ -2154,6 +2186,7 @@ async function main() {
     }
 
     const result = await importBundles(bundles, dryRun, {
+      materialsOnly,
       archiveOldInputTests: shouldArchiveOldInputTests,
       archiveSupersededTests: shouldArchiveSupersededTests
     });
