@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { RowDataPacket } from "mysql2";
+import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { canManageAssignments, getCurrentUser } from "@/lib/auth";
 import { queryRows, withTransaction } from "@/lib/db";
 
@@ -40,6 +40,16 @@ type CountRow = RowDataPacket & {
 
 type EmployeeIdRow = RowDataPacket & {
   id: number;
+};
+
+type AssignmentRemovalRow = RowDataPacket & {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  test_id: number;
+  test_title: string;
+  attempt_count: number;
+  retake_request_count: number;
 };
 
 type SummaryRow = RowDataPacket & {
@@ -417,6 +427,72 @@ export async function POST(request: Request) {
 
     return { assignedCount: employeeIds.length, remindedCount: sendNotification ? employeeIds.length : 0 };
   });
+
+  return NextResponse.json(result);
+}
+
+export async function DELETE(request: Request) {
+  const currentUser = await requireAssignmentManager(request);
+  if (!currentUser) {
+    return NextResponse.json({ error: "Không có quyền bỏ gán bài test." }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => null);
+  const assignmentId = Number(body?.assignmentId);
+
+  if (!Number.isInteger(assignmentId) || assignmentId < 1) {
+    return NextResponse.json({ error: "Phân công cần bỏ gán không hợp lệ." }, { status: 400 });
+  }
+
+  const result = await withTransaction(async (connection) => {
+    const [assignmentRows] = await connection.execute<AssignmentRemovalRow[]>(
+      `
+      SELECT
+        ta.id,
+        ta.employee_id,
+        e.full_name AS employee_name,
+        ta.test_id,
+        t.title AS test_title,
+        (SELECT COUNT(*) FROM test_attempts attempt WHERE attempt.assignment_id = ta.id) AS attempt_count,
+        (SELECT COUNT(*) FROM retake_requests request WHERE request.assignment_id = ta.id) AS retake_request_count
+      FROM test_assignments ta
+      JOIN employees e ON e.id = ta.employee_id
+      JOIN tests t ON t.id = ta.test_id
+      WHERE ta.id = ?
+      LIMIT 1
+      FOR UPDATE
+      `,
+      [assignmentId]
+    );
+    const assignment = assignmentRows[0];
+
+    if (!assignment) {
+      return null;
+    }
+
+    const [deleteResult] = await connection.execute<ResultSetHeader>(
+      "DELETE FROM test_assignments WHERE id = ?",
+      [assignmentId]
+    );
+
+    if (deleteResult.affectedRows !== 1) {
+      throw new Error(`Không thể bỏ phân công ${assignmentId}.`);
+    }
+
+    return {
+      assignmentId: assignment.id,
+      employeeId: assignment.employee_id,
+      employeeName: assignment.employee_name,
+      testId: assignment.test_id,
+      testTitle: assignment.test_title,
+      deletedAttemptCount: Number(assignment.attempt_count ?? 0),
+      deletedRetakeRequestCount: Number(assignment.retake_request_count ?? 0)
+    };
+  });
+
+  if (!result) {
+    return NextResponse.json({ error: "Không tìm thấy phân công hoặc phân công đã được bỏ trước đó." }, { status: 404 });
+  }
 
   return NextResponse.json(result);
 }

@@ -7,12 +7,13 @@ import {
   RefreshCw,
   Search,
   Send,
+  Trash2,
   UserCheck,
   Users
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AdminDataLoading } from "./admin-data-loading";
-import { AdminToast } from "./admin-feedback";
+import { AdminConfirmDialog, AdminToast } from "./admin-feedback";
 import { Avatar } from "./shared";
 
 type AssignmentStatus = "not_started" | "studying" | "passed" | "failed";
@@ -129,6 +130,8 @@ export function AssignmentManagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
+  const [pendingUnassignment, setPendingUnassignment] = useState<AssignableEmployee | null>(null);
+  const [isUnassigning, setIsUnassigning] = useState(false);
 
   const selectedTestId = testId || (data?.selectedTestId ? String(data.selectedTestId) : "");
   const selectedPassScore =
@@ -287,6 +290,39 @@ export function AssignmentManagementPage() {
         : `Đã gửi nhắc nhở cho ${responseData.remindedCount ?? selectedEmployeeIds.length} nhân sự.`
     );
     setSelectedEmployeeIds([]);
+    await loadAssignments();
+  }
+
+  async function confirmUnassignment() {
+    if (!pendingUnassignment?.assignmentId) return;
+
+    setIsUnassigning(true);
+    setError("");
+    setSuccess("");
+
+    const response = await fetch("/api/admin/assignments", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ assignmentId: pendingUnassignment.assignmentId })
+    }).catch(() => null);
+    const responseData = await response?.json().catch(() => null);
+    setIsUnassigning(false);
+
+    if (!response?.ok) {
+      setError(responseData?.error ?? "Không thể bỏ gán bài test.");
+      return;
+    }
+
+    const employeeName = responseData?.employeeName ?? pendingUnassignment.fullName;
+    const testTitle =
+      responseData?.testTitle ??
+      data?.tests.find((test) => String(test.id) === selectedTestId)?.title ??
+      "bài test";
+    setPendingUnassignment(null);
+    setSelectedEmployeeIds((current) => current.filter((id) => id !== pendingUnassignment.id));
+    setSuccess(`Đã bỏ gán “${testTitle}” khỏi ${employeeName}.`);
     await loadAssignments();
   }
 
@@ -478,6 +514,7 @@ export function AssignmentManagementPage() {
                 <th>Tiến độ</th>
                 <th>Làm thử</th>
                 <th>Điểm chính thức</th>
+                <th>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -513,11 +550,28 @@ export function AssignmentManagementPage() {
                   <td className={scoreClass(employee.officialScore, selectedPassScore)}>
                     {employee.officialScore !== null ? `${employee.officialScore}/100` : "--"}
                   </td>
+                  <td>
+                    {employee.assignmentId ? (
+                      <button
+                        className="danger-button"
+                        type="button"
+                        onClick={() => {
+                          setError("");
+                          setSuccess("");
+                          setPendingUnassignment(employee);
+                        }}
+                      >
+                        <Trash2 size={16} /> Bỏ gán
+                      </button>
+                    ) : (
+                      "--"
+                    )}
+                  </td>
                 </tr>
               ))}
               {data?.employees.length === 0 && (
                 <tr>
-                  <td colSpan={10}>Không có nhân sự phù hợp với bộ lọc.</td>
+                  <td colSpan={11}>Không có nhân sự phù hợp với bộ lọc.</td>
                 </tr>
               )}
             </tbody>
@@ -556,6 +610,20 @@ export function AssignmentManagementPage() {
           </div>
         </div>
       </section>
+
+      <AdminConfirmDialog
+        open={Boolean(pendingUnassignment)}
+        title="Bỏ gán bài kiểm tra?"
+        description={`Bỏ gán “${data?.tests.find((test) => String(test.id) === selectedTestId)?.title ?? "bài test này"}” khỏi ${pendingUnassignment?.fullName ?? "nhân sự đã chọn"}. Người này sẽ không còn thấy bài test. Toàn bộ lượt làm thử, lượt làm chính thức, đáp án, điểm số và yêu cầu làm lại thuộc phân công này sẽ bị xóa vĩnh viễn. Tiến độ đọc tài liệu độc lập vẫn được giữ lại.`}
+        error={error}
+        confirmLabel="Xác nhận bỏ gán"
+        isSubmitting={isUnassigning}
+        onCancel={() => {
+          setPendingUnassignment(null);
+          setError("");
+        }}
+        onConfirm={() => void confirmUnassignment()}
+      />
     </>
   );
 }
